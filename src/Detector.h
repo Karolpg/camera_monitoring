@@ -2,6 +2,8 @@
 
 #include <string>
 #include <vector>
+#include <set>
+#include <unordered_map>
 
 struct network;
 
@@ -12,7 +14,7 @@ struct DetectionBox
 
 struct DetectionResult
 {
-    int classId;
+    uint32_t classId;
     const std::string& label;
     float probablity;
     DetectionBox box;
@@ -21,29 +23,60 @@ struct DetectionResult
 class Detector
 {
 public:
+    struct Image {
+        std::vector<uint8_t> data;
+        uint32_t w;
+        uint32_t h;
+        uint32_t c;
+    };
+
     Detector(const std::string& netConfigFilePath,
              const std::string& weightsFilePath,
              const std::string& labelsFilePath,
+             const std::string& expectedLabelsFilePath,
              float netThreshold);
     ~Detector();
-    bool detect(const uint8_t* data, uint32_t width, uint32_t height, uint32_t components);
+
+    ///
+    /// \param data   - image pixels, data is copied to cache
+    /// \param width  - image width
+    /// \param height - image height
+    /// \param components - image component of pixel, one component equal one byte, e.g. 1 - R, 2 - RG, 3 - RGB, 4 - RGBA
+    ///                     darknet expects RGB so if input is different then last channel is copied or removed
+    ///
+    void setInput(const uint8_t* data, uint32_t width, uint32_t height, uint32_t components);
+
+    ///
+    /// \return true - if find something, false - if find nothing
+    ///
+    bool detect();
 
     const std::vector<DetectionResult>& lastResults() const { return m_lastDetections; }
-    const std::vector<uint8_t>& getNetOutImg(uint32_t& w, uint32_t& h, uint32_t& c);
+    const Image& getNetOutImg();
+    const Image& getLabeledInImg();
 
+    void drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c);
 
 protected:
+
+    void drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c, uint32_t validAreaW, uint32_t validAreaH);
+    void readLabels(const std::string& labelsFilePath, const std::string& expectedLabelsFilePath);
+    void generateLabelsImg() const;
+
     network* m_net = nullptr;
     std::vector<float> m_netInput;
 
-
     float m_netThreshold = 0.1f;
     std::vector<std::string> m_labels;
-    std::vector<uint32_t> m_labelColors;
+    std::unordered_map<uint32_t, uint32_t> m_expectedLabelColors;
 
-    bool m_outImageIsValid;
+    bool m_outNetImageHasLabels;
     uint32_t m_netScaledImageW;
     uint32_t m_netScaledImageH;
-    std::vector<uint8_t> m_outImage;
+    Image m_outNetImage;
+
+    bool m_inImageHasLabels;
+    Image m_inImage;
+
     std::vector<DetectionResult> m_lastDetections;
 };

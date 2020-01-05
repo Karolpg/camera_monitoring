@@ -7,6 +7,7 @@
 #include <string>
 #include <iostream>
 #include <thread>
+#include <mutex>
 
 #include <png.h>
 
@@ -106,40 +107,46 @@ void FrameControler::addFrame(const uint8_t* data)
     //    std::cout << "Warning! Frame provided too late: " << distanceBetweenFrames.count() - m_frameTime << "[s] fault. Distance: " << distanceBetweenFrames.count() << "[s] \n";
     //}
 
-    if (m_detector && isFrameChanged(m_cyclicBuffer[frameInBuffer], m_cyclicBuffer[prevFrameInBuffer])) {
-        //generalnie to ponizej jest do dupy
-        //calosc bedzie dzialac jesli nie zmienia sie zmienne pomiędzy wywolaniami
-        //narazie nic nie jest zabezpieczone, rozmiar sie nie zmieni wiec bedzie ok
-        //doswiadczalnie czas detekcji przez siec jest mniejszy niz dlugosc bufora cyklicznego na moim PC
-        volatile static bool runInThread = false;
-        if (!runInThread) {
-            runInThread = true;
+    //if (m_detector && isFrameChanged(m_cyclicBuffer[frameInBuffer], m_cyclicBuffer[prevFrameInBuffer])) {
+    if (m_detector) {
+        static std::mutex mtx;
+
+        if (mtx.try_lock()) {
+            // if detector is not processing, then data is copied into detector cache
+            m_detector->setInput(m_cyclicBuffer[frameInBuffer].data.data(), m_width, m_height, m_components);
+            mtx.unlock();
+
+            //
+            // we are in one thread and it is safe, but even if not, then detector could be invoked with the same data just few times
+            //
+
+            // start worker thread, we suspect (generally know that) that this calculation is CPU expensive and we have to collect/consume incoming frames from camera.
             std::thread( [this, frameNr, frameInBuffer]
             {
+                const std::lock_guard<std::mutex> lock(mtx);
+
                 std::cout << "Detecting for: " << frameNr << "(" << frameInBuffer << ")\n";
                 auto start = std::chrono::steady_clock::now();
-                if (m_detector->detect(m_cyclicBuffer[frameInBuffer].data.data(), m_width, m_height, m_components)) {
+                if (m_detector->detect()) {
                     std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
                     std::cout << "Detection time: " << detectTime.count() << "[s]\n";
 
                     auto results = m_detector->lastResults();
                     for (const DetectionResult& dr : results) {
-                        if (dr.probablity > 0.15f) {
-                            //std::cout << "WARNING person detected!!!\n";
-
                             std::cout << "Detected: [" << dr.classId << "] " << dr.label << " " << dr.probablity
                                       << " (" << dr.box.x << "x" << dr.box.y << ", " << dr.box.w << "x" << dr.box.h <<  "\n";
-                        }
                     }
-                    uint32_t w = 0, h = 0, c = 0;
-                    auto detectedOutImg = m_detector->getNetOutImg(w, h, c);
-                    writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + ".png").c_str(), w, h, detectedOutImg.data());
-                    //writePngFile("/tmp/detectionResult.png", w, h, detectedOutImg.data());
+                    auto detectedOutImg = m_detector->getLabeledInImg();
+                    writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + ".png").c_str(), detectedOutImg.w, detectedOutImg.h, detectedOutImg.data.data());
+                    //writePngFile("/tmp/detectionResult.png", detectedOutImg.w, detectedOutImg.h, detectedOutImg.data.data());
 
                     //storeFrame(m_cyclicBuffer[frameInBuffer], m_width, m_height);
                 }
+                else {
+                    std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
+                    std::cout << "Nothing detected. Detection time: " << detectTime.count() << "[s]\n";
+                }
                 std::cout.flush();
-                runInThread = false;
             }).detach();
         }
     }
@@ -147,7 +154,7 @@ void FrameControler::addFrame(const uint8_t* data)
 
 bool FrameControler::isFrameChanged(const Frame& f1, const Frame& f2)
 {
-    const uint32_t PIXEL_COUNT_THRESHOLD = static_cast<uint32_t>(m_width*m_height*0.05);
+    const uint32_t PIXEL_COUNT_THRESHOLD = static_cast<uint32_t>(m_width*m_height*0.01);
     const uint32_t COMPONENT_THRESHOLD = 15;
     uint32_t componentDiff = 0;
 

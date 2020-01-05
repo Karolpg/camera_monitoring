@@ -22,6 +22,7 @@ int main(int argc, char *argv[])
                 new Detector(cfg.getValue("darknetCfgFilePath"),
                              cfg.getValue("darknetWeightsFilePath"),
                              cfg.getValue("darknetOutLabelsFilePath"),
+                             cfg.getValue("validLabelsFilePath"),
                              0.1f));
 
     VideoGrabber videoGrabber(cfg.getValue("cameraUrl"));
