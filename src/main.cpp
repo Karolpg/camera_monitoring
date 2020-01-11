@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
                              cfg.getValue("darknetWeightsFilePath"),
                              cfg.getValue("darknetOutLabelsFilePath"),
                              cfg.getValue("validLabelsFilePath"),
-                             0.1f));
+                             cfg.getValue("probabilityThreshold", 0.1f)));
 
     VideoGrabber videoGrabber(cfg.getValue("cameraUrl"));
     videoGrabber.getFrameControler().setDetector(yoloDetector);
