@@ -1,4 +1,5 @@
 #include "FrameControler.h"
+#include "PngTools.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -9,62 +10,13 @@
 #include <thread>
 #include <mutex>
 
-#include <png.h>
 
-static bool writePngFile(const char *filename, uint32_t width, uint32_t height, png_bytep rawData)
+static bool storeFrame(const Frame& frame, uint32_t width, uint32_t height, uint32_t components)
 {
-    FILE *fp = fopen(filename, "wb");
-    if(!fp) return false;
-
-    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
-    if (!png) return false;
-
-    png_infop info = png_create_info_struct(png);
-    if (!info) return false;
-
-    if (setjmp(png_jmpbuf(png))) return false;
-
-    png_init_io(png, fp);
-
-    // Output is 8bit depth, RGB format.
-    png_set_IHDR(png,
-                 info,
-                 width, height,
-                 8,
-                 PNG_COLOR_TYPE_RGB,
-                 PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_DEFAULT,
-                 PNG_FILTER_TYPE_DEFAULT);
-    png_write_info(png, info);
-
-    // To remove the alpha channel for PNG_COLOR_TYPE_RGB format,
-    // Use png_set_filler().
-    //png_set_filler(png, 0, PNG_FILLER_AFTER);
-
-    if (!rawData) {
-        png_destroy_write_struct(&png, &info);
-        return false;
-    }
-
-    for(uint32_t h = 0; h < height; ++h) {
-        png_write_row(png, &rawData[width*h*3]);
-    }
-    png_write_end(png, nullptr);
-
-    fclose(fp);
-
-    png_destroy_write_struct(&png, &info);
-    return true;
-}
-
-static bool storeFrame(const Frame& frame, uint32_t width, uint32_t height)
-{
-    png_bytep raw = (png_bytep)frame.data.data();
-
     static const std::string path("/tmp/");
     std::string fileName = std::to_string(frame.nr);
     std::string pathFileName = path + fileName + ".png";
-    if (!writePngFile(pathFileName.c_str(), width, height, raw)) {
+    if (!PngTools::writePngFile(pathFileName.c_str(), width, height, components, frame.data.data())) {
         std::cerr << "Can't write png file!!!\n";
     }
 }
@@ -136,9 +88,16 @@ void FrameControler::addFrame(const uint8_t* data)
                             std::cout << "Detected: [" << dr.classId << "] " << dr.label << " " << dr.probablity
                                       << " (" << dr.box.x << "x" << dr.box.y << ", " << dr.box.w << "x" << dr.box.h <<  "\n";
                     }
+
+                    auto detectedinImg = m_detector->getInImg();
+                    PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + "_.png").c_str(),
+                                           detectedinImg.w, detectedinImg.h, detectedinImg.c, detectedinImg.data.data());
+
                     auto detectedOutImg = m_detector->getLabeledInImg();
-                    writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + ".png").c_str(), detectedOutImg.w, detectedOutImg.h, detectedOutImg.data.data());
-                    //writePngFile("/tmp/detectionResult.png", detectedOutImg.w, detectedOutImg.h, detectedOutImg.data.data());
+                    PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + ".png").c_str(),
+                                           detectedOutImg.w, detectedOutImg.h, detectedOutImg.c, detectedOutImg.data.data());
+                    //PngTools::writePngFile("/tmp/detectionResult.png",
+                    //                       detectedOutImg.w, detectedOutImg.h, detectedOutImg.c, detectedOutImg.data.data());
 
                     //storeFrame(m_cyclicBuffer[frameInBuffer], m_width, m_height);
                 }
@@ -149,6 +108,10 @@ void FrameControler::addFrame(const uint8_t* data)
                 std::cout.flush();
             }).detach();
         }
+//        else {
+//            std::cout << "Busy\n";
+//            std::cout.flush();
+//        }
     }
 }
 

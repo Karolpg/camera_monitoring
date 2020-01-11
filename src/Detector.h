@@ -54,12 +54,13 @@ public:
     const std::vector<DetectionResult>& lastResults() const { return m_lastDetections; }
     const Image& getNetOutImg();
     const Image& getLabeledInImg();
+    const Image& getInImg() const { return m_inImage; }
 
     void drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c);
 
 protected:
 
-    void drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c, uint32_t validAreaW, uint32_t validAreaH);
+    void drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c, uint32_t imgX, uint32_t imgY, uint32_t validAreaW, uint32_t validAreaH);
     void readLabels(const std::string& labelsFilePath, const std::string& expectedLabelsFilePath);
     void generateLabelsImg() const;
 
@@ -71,6 +72,8 @@ protected:
     std::unordered_map<uint32_t, uint32_t> m_expectedLabelColors;
 
     bool m_outNetImageHasLabels;
+    uint32_t m_netScaledImageX;
+    uint32_t m_netScaledImageY;
     uint32_t m_netScaledImageW;
     uint32_t m_netScaledImageH;
     Image m_outNetImage;

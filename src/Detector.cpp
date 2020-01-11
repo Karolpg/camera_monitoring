@@ -1,6 +1,7 @@
 #include "Detector.h"
 #include "ColorGenerator.h"
 #include "Letters.h"
+#include "PngTools.h"
 
 #include <darknet.h>
 #include <iostream>
@@ -9,54 +10,6 @@
 #include <cstring>
 #include <array>
 #include <algorithm>
-
-#include <png.h>
-
-static bool writePngFile(const char *filename, uint32_t width, uint32_t height, png_bytep rawData)
-{
-    FILE *fp = fopen(filename, "wb");
-    if(!fp) return false;
-
-    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
-    if (!png) return false;
-
-    png_infop info = png_create_info_struct(png);
-    if (!info) return false;
-
-    if (setjmp(png_jmpbuf(png))) return false;
-
-    png_init_io(png, fp);
-
-    // Output is 8bit depth, RGB format.
-    png_set_IHDR(png,
-                 info,
-                 width, height,
-                 8,
-                 PNG_COLOR_TYPE_RGB,
-                 PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_DEFAULT,
-                 PNG_FILTER_TYPE_DEFAULT);
-    png_write_info(png, info);
-
-    // To remove the alpha channel for PNG_COLOR_TYPE_RGB format,
-    // Use png_set_filler().
-    //png_set_filler(png, 0, PNG_FILLER_AFTER);
-
-    if (!rawData) {
-        png_destroy_write_struct(&png, &info);
-        return false;
-    }
-
-    for(uint32_t h = 0; h < height; ++h) {
-        png_write_row(png, &rawData[width*h*3]);
-    }
-    png_write_end(png, nullptr);
-
-    fclose(fp);
-
-    png_destroy_write_struct(&png, &info);
-    return true;
-}
 
 Detector::Detector(const std::string& netConfigFilePath,
                    const std::string& weightsFilePath,
@@ -109,9 +62,9 @@ float avarageColor(uint32_t x, uint32_t y, uint32_t c,
             uint32_t rawYEnd = std::min(rawY+maskY, height);
             uint32_t maskSize = (rawXEnd - rawX) * (rawYEnd - rawY);
 
-            for (; rawY < rawYEnd; ++rawY) {
-                for (; rawX < rawXEnd; ++rawX) {
-                    accColor += data[(rawY*width+rawX)*components + c];
+            for (uint32_t imgY = rawY; imgY < rawYEnd; ++imgY) {
+                for (uint32_t imgX = rawX; imgX < rawXEnd; ++imgX) {
+                    accColor += data[(imgY*width+imgX)*components + c];
                 }
             }
             return float(accColor) / maskSize / 255.0f;
@@ -156,15 +109,23 @@ bool Detector::detect()
     //keep the proportions
     const uint32_t w = static_cast<uint32_t>(m_net->w);
     const uint32_t h = static_cast<uint32_t>(m_net->h);
+    uint32_t newX = 0;
+    uint32_t newY = 0;
     uint32_t newW = m_inImage.w;
     uint32_t newH = m_inImage.h;
     if ((static_cast<float>(w)/m_inImage.w) < (static_cast<float>(h)/m_inImage.h)) {
         newW = w;
         newH = (m_inImage.h * w)/m_inImage.w;
+        newX = 0;
+        newY = (h-newH)/2;
     } else {
         newH = h;
         newW = (m_inImage.w * h)/m_inImage.h;
+        newX = (w-newW)/2;
+        newY = 0;
     }
+    m_netScaledImageX = newX;
+    m_netScaledImageY = newY;
     m_netScaledImageW = newW;
     m_netScaledImageH = newH;
 
@@ -175,37 +136,51 @@ bool Detector::detect()
         double wAspect = static_cast<double>(m_inImage.w) / static_cast<double>(newW);
         double hAspect = static_cast<double>(m_inImage.h) / static_cast<double>(newH);
 
-        for (uint32_t netComponent = 0; netComponent < c; ++netComponent) {
-            for (uint32_t y = 0; y < newH; ++y) {
-                for (uint32_t x = 0; x < newW; ++x) {
-                    uint32_t idx = y*w + x + netComponent*w*h;
-                    m_netInput[idx] = avarageColor(x, y, netComponent, m_inImage.data.data(), m_inImage.w, m_inImage.h, m_inImage.c, wAspect, hAspect);
-                }
-            }
-            //clear right site
-            if (w - newW > 0) {
-                for (uint32_t y = 0; y < newH; ++y) {
-                    uint32_t idx = y*w + newW + netComponent*w*h;
-                    std::memset(&m_netInput[idx], 0, (w - newW)*sizeof(float));
-                }
-            }
+        float clearValueF = 0.5f;
+        int clearValue;
+        static_assert(sizeof(float) == sizeof(int), "sizeof(float) not equal sizeof(int)");
+        std::memcpy(&clearValue, &clearValueF, sizeof(int));
 
-            //clear bottom
-            for (uint32_t y = newH; y < h; ++y) {
-                uint32_t idx = y*w + netComponent*w*h;
-                std::memset(&m_netInput[idx], 0, w*sizeof(float));
+        //#pragma omp parallel for
+        for (uint32_t netComponent = 0; netComponent < c; ++netComponent) {
+            for (uint32_t y = newY; y < newY + newH; ++y) {
+                for (uint32_t x = newX; x < newX + newW; ++x) {
+                    uint32_t idx = y*w + x + netComponent*w*h;
+                    m_netInput[idx] = avarageColor(x-newX, y-newY, netComponent, m_inImage.data.data(), m_inImage.w, m_inImage.h, m_inImage.c, wAspect, hAspect);
+                }
+            }
+            //clear left right site
+            if (newX > 0) {
+                for (uint32_t y = 0; y < newH; ++y) {
+                    uint32_t idx = y*w + netComponent*w*h;
+                    std::fill(&m_netInput[idx], &m_netInput[idx+newX], clearValueF);
+                    std::fill(&m_netInput[idx + newX + newW], &m_netInput[idx+w], clearValueF);
+                }
+            }
+            else if (newY > 0) {
+                //clear up
+                for (uint32_t y = 0; y < newY; ++y) {
+                    uint32_t idx = y*w + netComponent*w*h;
+                    std::fill(&m_netInput[idx], &m_netInput[idx+w], clearValueF);
+                }
+
+                //clear bottom
+                for (uint32_t y = newY + newH; y < h; ++y) {
+                    uint32_t idx = y*w + netComponent*w*h;
+                    std::fill(&m_netInput[idx], &m_netInput[idx+w], clearValueF);
+                }
             }
         }
     }
 
-//    {
-//        image im;
-//        im.c = m_net->c;
-//        im.w = m_net->w;
-//        im.h = m_net->h;
-//        im.data = m_netInput.data();
-//        save_image(im, "/tmp/predictions1");
-//    }
+    //{
+    //    image im;
+    //    im.c = m_net->c;
+    //    im.w = m_net->w;
+    //    im.h = m_net->h;
+    //    im.data = m_netInput.data();
+    //    save_image(im, "/tmp/predictions1");
+    //}
 
     network_predict(m_net, m_netInput.data());
 
@@ -244,6 +219,7 @@ const Detector::Image& Detector::getNetOutImg()
     uint32_t c = static_cast<uint32_t>(m_net->c);
 
     if (!m_outNetImageHasLabels) {
+        #pragma omp parallel for
         for (uint32_t k = 0; k < c; ++k) {
             for (uint32_t y = 0; y < h; ++y) {
                 for (uint32_t x = 0; x < w; ++x) {
@@ -253,7 +229,7 @@ const Detector::Image& Detector::getNetOutImg()
             }
         }
 
-        drawResults(m_outNetImage.data, m_outNetImage.w, m_outNetImage.h, m_outNetImage.c, m_netScaledImageW, m_netScaledImageH);
+        drawResults(m_outNetImage.data, m_outNetImage.w, m_outNetImage.h, m_outNetImage.c, m_netScaledImageX, m_netScaledImageY, m_netScaledImageW, m_netScaledImageH);
 
         m_outNetImageHasLabels = true;
     }
@@ -273,10 +249,10 @@ const Detector::Image& Detector::getLabeledInImg()
 
 void Detector::drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c)
 {
-    drawResults(data, w, h, c, w, h);
+    drawResults(data, w, h, c, 0, 0, w, h);
 }
 
-void Detector::drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c, uint32_t validAreaW, uint32_t validAreaH)
+void Detector::drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, uint32_t c, uint32_t imgX, uint32_t imgY, uint32_t validAreaW, uint32_t validAreaH)
 {
     assert(data.size() == w*h*c);
     const uint32_t BT = 3; // BT - BORDER THICKNESS
@@ -292,11 +268,15 @@ void Detector::drawResults(std::vector<uint8_t>& data, uint32_t w, uint32_t h, u
         BC[2] = static_cast<uint8_t>(labelColor >> 16);
         BC[3] = static_cast<uint8_t>(labelColor >> 24);
 
-        //first cast to int because potential negative value
-        uint32_t left   = static_cast<uint32_t>(std::clamp(static_cast<int>((dr.box.x - dr.box.w / 2.0f) * validAreaW), LOWEST_BORDER_CENTER, HIGHEST_W_BORDER_CENTER));
-        uint32_t right  = static_cast<uint32_t>(std::clamp(static_cast<int>((dr.box.x + dr.box.w / 2.0f) * validAreaW), LOWEST_BORDER_CENTER, HIGHEST_W_BORDER_CENTER));
-        uint32_t top    = static_cast<uint32_t>(std::clamp(static_cast<int>((dr.box.y - dr.box.h / 2.0f) * validAreaH), LOWEST_BORDER_CENTER, HIGHEST_H_BORDER_CENTER));
-        uint32_t bottom = static_cast<uint32_t>(std::clamp(static_cast<int>((dr.box.y + dr.box.h / 2.0f) * validAreaH), LOWEST_BORDER_CENTER, HIGHEST_H_BORDER_CENTER));
+        //int type because of potential negative value
+        int rawLeft   = static_cast<int>((dr.box.x - dr.box.w / 2.0f) * validAreaW + imgX);
+        int rawRight  = static_cast<int>((dr.box.x + dr.box.w / 2.0f) * validAreaW + imgX);
+        int rawTop    = static_cast<int>((dr.box.y - dr.box.h / 2.0f) * validAreaH + imgY);
+        int rawBottom = static_cast<int>((dr.box.y + dr.box.h / 2.0f) * validAreaH + imgY);
+        uint32_t left   = static_cast<uint32_t>(std::clamp(rawLeft  , LOWEST_BORDER_CENTER, HIGHEST_W_BORDER_CENTER));
+        uint32_t right  = static_cast<uint32_t>(std::clamp(rawRight , LOWEST_BORDER_CENTER, HIGHEST_W_BORDER_CENTER));
+        uint32_t top    = static_cast<uint32_t>(std::clamp(rawTop   , LOWEST_BORDER_CENTER, HIGHEST_H_BORDER_CENTER));
+        uint32_t bottom = static_cast<uint32_t>(std::clamp(rawBottom, LOWEST_BORDER_CENTER, HIGHEST_H_BORDER_CENTER));
 
         for (uint32_t k = 0; k < c; ++k) {
             uint8_t kVal = BC[k % BC.size()];
@@ -442,5 +422,5 @@ void Detector::generateLabelsImg() const
 
         ++i;
     }
-    writePngFile("/tmp/lables.png", labelsImg.w, labelsImg.h, labelsImg.data.data());
+    PngTools::writePngFile("/tmp/lables.png", labelsImg.w, labelsImg.h, labelsImg.c, labelsImg.data.data());
 }
