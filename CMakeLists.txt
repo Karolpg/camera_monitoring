@@ -13,6 +13,8 @@ set(SOURCES src/main.cpp
             src/FrameControler.h
             src/Letters.cpp
             src/Letters.h
+            src/PngTools.cpp
+            src/PngTools.h
             src/VideoGrabber.cpp
             src/VideoGrabber.h)
 
@@ -20,13 +22,15 @@ add_executable(${TARGET_NAME} ${SOURCES})
 
 find_package(PNG REQUIRED)
 find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
+find_package(OpenMP)
 
 target_link_libraries(${TARGET_NAME} gstreamer-1.0 
                                      gobject-2.0 
                                      glib-2.0 
                                      pthread
                                      PNG::PNG
-                                     darknet::darknet)
+                                     darknet::darknet
+                                     OpenMP::OpenMP_CXX)
 
 target_include_directories(${TARGET_NAME} PRIVATE /usr/include/gstreamer-1.0 
                                                   /usr/include/glib-2.0 
