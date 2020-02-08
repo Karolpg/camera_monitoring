@@ -59,10 +59,31 @@ void VideoGrabber::hangOnPlay()
     gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
 
     // Wait until error or EOS
-    GstMessage *msg = gst_bus_timed_pop_filtered(m_bus, GST_CLOCK_TIME_NONE, GST_MESSAGE_ERROR | GST_MESSAGE_EOS);
+    GstMessage *msg = gst_bus_timed_pop_filtered(m_bus,
+                                                 GST_CLOCK_TIME_NONE,
+                                                 static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
 
-    if (msg != nullptr)
-        gst_message_unref(msg);
+    if (msg) {
+        std::cout << "Msg type: " << gst_message_type_get_name(msg->type)
+                  << " src: " << static_cast<void*>(msg->src)
+                  << " timestamp: " << msg->timestamp
+                  << " seq: " << msg->seqnum
+                  << "\n";
+
+        if (msg->type == GST_MESSAGE_ERROR) {
+            GError* eData;
+            gchar* dData;
+            gst_message_parse_error(msg, &eData, &dData);
+            std::cerr << "Debug msg: " << dData
+                      << "\nError code: " << eData->code
+                      << "\nError message: " << eData->message
+                      << "\n";
+            g_error_free(eData);
+            g_free(dData);
+        }
+
+        gst_message_unref (msg);
+    }
 }
 
 int VideoGrabber::onNewVideoSample(GstElement *sink)

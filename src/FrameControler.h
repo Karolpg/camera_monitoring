@@ -4,8 +4,11 @@
 #include <cstdint>
 #include <chrono>
 #include <memory>
+#include <mutex>
 
 #include "Detector.h"
+
+class VideoRecorder;
 
 struct Frame
 {
@@ -18,8 +21,8 @@ struct Frame
 class FrameControler
 {
 public:
-    FrameControler() {}
-    ~FrameControler() {}
+    FrameControler();
+    ~FrameControler();
 
     void setBufferParams(double duration, double cameraFps, uint32_t width, uint32_t height, uint32_t components);
     void setDetector(const std::shared_ptr<Detector>& detector) { m_detector = detector; }
@@ -46,4 +49,8 @@ private:
     uint32_t m_components = 0;
 
     std::shared_ptr<Detector> m_detector;
+
+    std::mutex m_recorderMutex;
+    std::chrono::steady_clock::time_point m_stopRecordingTime;
+    std::unique_ptr<VideoRecorder> m_videoRecorder;
 };

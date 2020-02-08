@@ -1,5 +1,6 @@
 #include "FrameControler.h"
 #include "PngTools.h"
+#include "VideoRecorder.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -9,6 +10,7 @@
 #include <iostream>
 #include <thread>
 #include <mutex>
+#include <stdexcept>
 
 
 static bool storeFrame(const Frame& frame, uint32_t width, uint32_t height, uint32_t components)
@@ -18,8 +20,21 @@ static bool storeFrame(const Frame& frame, uint32_t width, uint32_t height, uint
     std::string pathFileName = path + fileName + ".png";
     if (!PngTools::writePngFile(pathFileName.c_str(), width, height, components, frame.data.data())) {
         std::cerr << "Can't write png file!!!\n";
+        return false;
     }
+    return true;
 }
+
+FrameControler::FrameControler()
+{
+
+}
+
+FrameControler::~FrameControler()
+{
+
+}
+
 
 void FrameControler::setBufferParams(double duration, double cameraFps, uint32_t width, uint32_t height, uint32_t components)
 {
@@ -53,6 +68,57 @@ void FrameControler::addFrame(const uint8_t* data)
     m_cyclicBuffer[frameInBuffer].nr = frameNr;
     m_cyclicBuffer[frameInBuffer].time = std::chrono::steady_clock::now();
     std::memcpy(m_cyclicBuffer[frameInBuffer].data.data(), data, m_width*m_height*m_components);
+
+    {
+        std::lock_guard<std::mutex> lg(m_recorderMutex);
+        if (std::chrono::steady_clock::now() < m_stopRecordingTime) {
+            assert(m_videoRecorder);
+            m_videoRecorder->addFrame(m_cyclicBuffer[frameInBuffer].data);
+        }
+        else {
+            if (m_videoRecorder) {
+                m_videoRecorder->finishRecording();
+                m_videoRecorder.reset();
+            }
+        }
+    }
+
+/*
+    {
+        if(!m_videoRecorder) {
+            std::string videoFilePath = "/tmp/detection_";
+            static int ctr = 0;
+            videoFilePath += std::to_string(ctr++);
+            videoFilePath += ".mpeg";
+            RecordingDataType rdt;
+            std::memset(&rdt, 0, sizeof (rdt));
+            rdt.useVideo = true;
+            switch (m_components) {
+                case 1: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY8; break;
+                case 2: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY16_LE; break;
+                case 3: rdt.videoFormat = GST_VIDEO_FORMAT_RGB; break;
+                case 4: rdt.videoFormat = GST_VIDEO_FORMAT_RGBA; break;
+                default: throw std::runtime_error("Invalid components!");
+            }
+            rdt.videoW = m_width;
+            rdt.videoH = m_height;
+            rdt.videoFpsN = static_cast<uint32_t>(m_cameraFps);
+            rdt.videoFpsD = 1;
+            m_videoRecorder = std::unique_ptr<VideoRecorder>(new VideoRecorder(videoFilePath, rdt));
+            m_stopRecordingTime = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        }
+        else {
+
+            if (std::chrono::steady_clock::now() < m_stopRecordingTime) {
+                m_videoRecorder->addFrame(m_cyclicBuffer[frameInBuffer].data);
+            }
+            else {
+                m_videoRecorder->finishRecording();
+                m_videoRecorder.reset();
+            }
+        }
+    }
+    */
 
     //std::chrono::duration<double> distanceBetweenFrames = m_cyclicBuffer[frameInBuffer].time - m_cyclicBuffer[prevFrameInBuffer].time;
     //if (std::abs(distanceBetweenFrames.count() - m_frameTime) > m_frameTime*0.01) {
@@ -90,16 +156,62 @@ void FrameControler::addFrame(const uint8_t* data)
                     }
 
                     auto detectedinImg = m_detector->getInImg();
-                    PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + "_.png").c_str(),
-                                           detectedinImg.w, detectedinImg.h, detectedinImg.c, detectedinImg.data.data());
-
-                    auto detectedOutImg = m_detector->getLabeledInImg();
-                    PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + ".png").c_str(),
-                                           detectedOutImg.w, detectedOutImg.h, detectedOutImg.c, detectedOutImg.data.data());
+                    //PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + "_.png").c_str(),
+                    //                       detectedinImg.w, detectedinImg.h, detectedinImg.c, detectedinImg.data.data());
+                    //
+                    //auto detectedOutImg = m_detector->getLabeledInImg();
+                    //PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + ".png").c_str(),
+                    //                       detectedOutImg.w, detectedOutImg.h, detectedOutImg.c, detectedOutImg.data.data());
                     //PngTools::writePngFile("/tmp/detectionResult.png",
                     //                       detectedOutImg.w, detectedOutImg.h, detectedOutImg.c, detectedOutImg.data.data());
 
-                    //storeFrame(m_cyclicBuffer[frameInBuffer], m_width, m_height);
+                    {
+                        std::lock_guard<std::mutex> lg(m_recorderMutex);
+                        if (m_videoRecorder) {
+                            m_stopRecordingTime = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                        }
+                        else {
+                            std::string videoFilePath = "/tmp/detection_";
+                            videoFilePath += ".mpeg";
+                            RecordingDataType rdt;
+                            std::memset(&rdt, 0, sizeof (rdt));
+                            rdt.useVideo = true;
+                            switch (m_components) {
+                                case 1: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY8; break;
+                                case 2: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY16_LE; break;
+                                case 3: rdt.videoFormat = GST_VIDEO_FORMAT_RGB; break;
+                                case 4: rdt.videoFormat = GST_VIDEO_FORMAT_RGBA; break;
+                                default: throw std::runtime_error("Invalid components!");
+                            }
+                            rdt.videoW = m_width;
+                            rdt.videoH = m_height;
+                            rdt.videoFpsN = static_cast<uint32_t>(m_cameraFps);
+                            rdt.videoFpsD = 1;
+                            m_videoRecorder = std::unique_ptr<VideoRecorder>(new VideoRecorder(videoFilePath, rdt));
+
+                            if (m_cyclicBuffer[frameInBuffer].nr == frameNr) {
+                                uint32_t findFirst = frameInBuffer;
+                                for (uint32_t i = 1; i < m_cyclicBuffer.size() - 1; ++i) {
+                                    uint32_t prevFrame = (frameInBuffer - i)%m_cyclicBuffer.size();
+                                    if (m_cyclicBuffer[prevFrame].nr != frameNr - i) {
+                                        findFirst = (prevFrame + 1)%m_cyclicBuffer.size();
+                                        break;
+                                    }
+                                }
+                                do
+                                {
+                                    m_videoRecorder->addFrame(m_cyclicBuffer[findFirst].data);
+                                    ++findFirst;
+                                }
+                                while (m_cyclicBuffer[(findFirst-1)%m_cyclicBuffer.size()].nr + 1 == m_cyclicBuffer[findFirst].nr);
+                            }
+                            else {
+                                std::cout << "Unsynchronized! Please set longer cyclic buffer!\n";
+                                m_videoRecorder->addFrame(detectedinImg.data);
+                            }
+                            m_stopRecordingTime = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                        }
+                    }
                 }
                 else {
                     std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;

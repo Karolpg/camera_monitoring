@@ -16,7 +16,9 @@ set(SOURCES src/main.cpp
             src/PngTools.cpp
             src/PngTools.h
             src/VideoGrabber.cpp
-            src/VideoGrabber.h)
+            src/VideoGrabber.h
+            src/VideoRecorder.cpp
+            src/VideoRecorder.h)
 
 add_executable(${TARGET_NAME} ${SOURCES})
 
@@ -26,7 +28,9 @@ find_package(OpenMP)
 
 target_link_libraries(${TARGET_NAME} gstreamer-1.0 
                                      gobject-2.0 
-                                     glib-2.0 
+                                     glib-2.0
+                                     gstaudio-1.0
+                                     gstvideo-1.0
                                      pthread
                                      PNG::PNG
                                      darknet::darknet
