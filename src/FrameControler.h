@@ -13,6 +13,7 @@ class VideoRecorder;
 struct Frame
 {
     uint64_t nr = 0;
+    uint32_t bufferIdx = 0;
     std::chrono::steady_clock::time_point time;
     std::vector<uint8_t> data;
 };
@@ -34,7 +35,11 @@ public:
     uint32_t getComponents() const { return m_components; }
 
 private:
-    bool isFrameChanged(const Frame& f1, const Frame& f2);
+    bool isFrameChanged(const Frame& f1, const Frame& f2) const;
+    void runDetection(const Frame& frame);
+    void recording(const std::string& filename, uint32_t frameNr, uint32_t frameInBuffer);
+    void feedRecorder(const Frame& frame);
+    void sendNotification();
 
     double m_cameraFps = 0.0;
     double m_frameTime = 0.0;
