@@ -37,6 +37,8 @@ public:
     VideoRecorder(const std::string& outFilePath, const RecordingDataType& recDataType);
     ~VideoRecorder();
 
+    const std::string& recordingFilePath() const { return m_outFilePath; }
+
     bool hasError() const { return !m_gstComponentsOk; }
 
     /// Data has to be provided in declared format. Size is not checked.
@@ -47,6 +49,7 @@ public:
     bool addAudioSamples(const StreamData& audioData);
 
     bool finishRecording();
+    void waitForFinish();
 private:
     bool createPipeline();
     void fillCapabilities();
@@ -63,17 +66,22 @@ private:
 
     GstElement *m_pipeline = nullptr;
     GstElement *m_videoAppSource = nullptr;
+    GstElement *m_outFileObj = nullptr;
     GstBus* m_bus = nullptr;
     volatile bool m_gstComponentsOk = false;
     volatile bool m_videoFeed = true;
     volatile bool m_videoNeedData = false;
+    volatile bool m_recordingFinished = false;
     std::mutex m_audioDataMutex;
     std::mutex m_videoDataMutex;
+    std::mutex m_waitingRecordingMutex;
     std::condition_variable m_videoCv;
+    std::condition_variable m_waitingRecordingFinishCv;
     std::queue<GstBuffer*> m_audioDataQueue;
     std::queue<GstBuffer*> m_videoDataQueue;
     uint64_t m_audioSampleCnt = 0;
     uint64_t m_videoSampleCnt = 0;
     uint32_t m_audioBytePerSample = 0; // TODO check how bits are expected in buffer, are they tightly packed for 20, 18 ... bits per sameple format
-    bool m_finishRecordingAlreadySent = false;
+    bool m_finishRecordingAlreadyScheduled = false;
+    bool m_sendFinishRecording = false;
 };

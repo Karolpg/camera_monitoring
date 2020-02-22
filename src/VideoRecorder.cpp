@@ -3,23 +3,30 @@
 #include <gst/gst.h>
 #include <gst/audio/audio.h>
 #include <gst/video/video.h>
+#include <gst/base/gstbasesink.h>
 
 #include <iostream>
 #include <assert.h>
+
+#include "PngTools.h"
 
 VideoRecorder::VideoRecorder(const std::string &outFilePath, const RecordingDataType &recDataType)
     : m_outFilePath(outFilePath)
     , m_recDataType(recDataType)
 {
-
     if (!createPipeline()) {
         return;
     }
 
-
     m_videoAppSource = gst_bin_get_by_name(GST_BIN(m_pipeline), "myAppSrc");
     if (!m_videoAppSource) {
         std::cerr << "Can't find appsrc element in pipeline!\n";
+        return;
+    }
+
+    m_outFileObj = gst_bin_get_by_name(GST_BIN(m_pipeline), "outFileObj");
+    if (!m_outFileObj) {
+        std::cerr << "Can't find filesink element in pipeline!\n";
         return;
     }
 
@@ -49,6 +56,7 @@ VideoRecorder::~VideoRecorder()
     m_pipelineThread.join();
     if (m_bus) gst_object_unref(m_bus);
     if (m_videoAppSource) gst_object_unref(m_videoAppSource);
+    if (m_outFileObj) gst_object_unref(m_outFileObj);
     if (m_pipeline) {
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         gst_object_unref(m_pipeline);
@@ -56,12 +64,13 @@ VideoRecorder::~VideoRecorder()
 
     m_videoFeed = false;
     m_videoCv.notify_all();
+    m_waitingRecordingFinishCv.notify_all();
     m_videoFeedingThread.join();
 }
 
 bool VideoRecorder::createPipeline()
 {
-    std::string pipelineDefinition = std::string("appsrc name=myAppSrc ! videoconvert ! x264enc ! filesink location=") + m_outFilePath;
+    std::string pipelineDefinition = std::string("appsrc name=myAppSrc ! videoconvert ! queue ! x264enc ! filesink name=outFileObj location=") + m_outFilePath;
     GError* error = nullptr;
     m_pipeline = gst_parse_launch(pipelineDefinition.c_str(), &error);
     if (error) {
@@ -131,6 +140,19 @@ void VideoRecorder::pipelineLoop(VideoRecorder& vr)
                                                  GST_CLOCK_TIME_NONE,
                                                  static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
 
+    auto errorHandling = [&vr](GstMessage *msg) {
+        GError* eData;
+        gchar* dData;
+        gst_message_parse_error(msg, &eData, &dData);
+        std::cerr << "Debug msg: " << dData
+                  << "\nError code: " << eData->code
+                  << "\nError message: " << eData->message
+                  << "\n";
+        vr.m_gstComponentsOk = false;
+        g_error_free(eData);
+        g_free(dData);
+    };
+
     if (msg) {
         std::cout << "Msg type: " << gst_message_type_get_name(msg->type)
                   << " src: " << static_cast<void*>(msg->src)
@@ -138,20 +160,31 @@ void VideoRecorder::pipelineLoop(VideoRecorder& vr)
                   << " seq: " << msg->seqnum
                   << "\n";
 
+        bool eos = false;
         if (msg->type == GST_MESSAGE_ERROR) {
-            GError* eData;
-            gchar* dData;
-            gst_message_parse_error(msg, &eData, &dData);
-            std::cerr << "Debug msg: " << dData
-                      << "\nError code: " << eData->code
-                      << "\nError message: " << eData->message
-                      << "\n";
-            vr.m_gstComponentsOk = false;
-            g_error_free(eData);
-            g_free(dData);
+            errorHandling(msg);
+        }
+        else if(msg->type == GST_MESSAGE_EOS) {
+            eos = true;
         }
 
         gst_message_unref (msg);
+
+        //if (eos) {
+        //    GstBaseSink* outFileSink = reinterpret_cast<GstBaseSink*>(vr.m_outFileObj);
+        //    while (!outFileSink->eos) {
+        //        GstMessage *msg = gst_bus_timed_pop_filtered(vr.m_bus,
+        //                                                     5 * 1000,
+        //                                                     static_cast<GstMessageType>(GST_MESSAGE_ERROR));
+        //        if (msg && msg->type == GST_MESSAGE_ERROR) {
+        //            errorHandling(msg);
+        //            break;
+        //        }
+        //    }
+        //}
+
+        vr.m_recordingFinished = true;
+        vr.m_waitingRecordingFinishCv.notify_one();
     }
 }
 
@@ -162,9 +195,25 @@ void VideoRecorder::videoFeedingLoop(VideoRecorder &vr)
         GstBuffer *videoBuffer = nullptr;
         {
             std::unique_lock<std::mutex> ul(vr.m_videoDataMutex);
-            vr.m_videoCv.wait(ul, [&vr]() { return (!vr.m_videoDataQueue.empty() && vr.m_videoNeedData) || !vr.m_videoFeed; });
-            if (!vr.m_videoFeed)
+            vr.m_videoCv.wait(ul, [&vr]() {
+                return (!vr.m_videoDataQueue.empty() && vr.m_videoNeedData) || !vr.m_videoFeed || vr.m_sendFinishRecording;
+            });
+
+            if (vr.m_sendFinishRecording && (!vr.m_videoFeed || vr.m_videoDataQueue.empty())) {
+                vr.m_sendFinishRecording = false;
+                GstEvent *eosEvent = gst_event_new_eos();
+                auto result = gst_element_send_event(vr.m_pipeline, eosEvent);
+                if (!result) {
+                    std::cerr << "Can't send end of stream event\n";
+                    gst_event_unref(eosEvent);
+                }
+                vr.m_videoFeed = false; // there is no need to do more here, we can end this thread
                 return;
+            }
+
+            if (!vr.m_videoFeed) {
+                return;
+            }
             videoBuffer = vr.m_videoDataQueue.front();
             vr.m_videoDataQueue.pop();
         }
@@ -173,7 +222,7 @@ void VideoRecorder::videoFeedingLoop(VideoRecorder &vr)
         g_signal_emit_by_name(vr.m_videoAppSource, "push-buffer", videoBuffer, &ret);
 
         if (ret != GST_FLOW_OK) {
-            std::cerr << "Error while emiting video push-buffer:" << ret;
+            std::cerr << "Error while emiting video push-buffer:" << ret << "\n";
         }
 
         gst_buffer_unref(videoBuffer);
@@ -183,6 +232,10 @@ void VideoRecorder::videoFeedingLoop(VideoRecorder &vr)
 void VideoRecorder::videoAppSrcNeedData(GstElement *, guint, VideoRecorder *vr)
 {
     vr->m_videoNeedData = true;
+
+    if(vr->m_videoDataQueue.empty() && vr->m_finishRecordingAlreadyScheduled) {
+        vr->m_sendFinishRecording = true;
+    }
     vr->m_videoCv.notify_one();
 }
 
@@ -203,7 +256,7 @@ bool VideoRecorder::addFrame(const StreamData &videoData)
         return false;
     }
 
-    if (m_finishRecordingAlreadySent) {
+    if (m_finishRecordingAlreadyScheduled) {
         std::cerr << "Finish has been sent!\n";
         return false;
     }
@@ -234,7 +287,7 @@ bool VideoRecorder::addFrame(const StreamData &videoData)
 bool VideoRecorder::addAudioSamples(const StreamData& audioData)
 {
     if (!m_gstComponentsOk) {
-        std::cerr << "Some errors occured in gstreamer while trying to finish recording\n";
+        std::cerr << "Some errors occured in gstreamer while trying to add audio samples\n";
         return false;
     }
 
@@ -243,7 +296,7 @@ bool VideoRecorder::addAudioSamples(const StreamData& audioData)
         return false;
     }
 
-    if (m_finishRecordingAlreadySent) {
+    if (m_finishRecordingAlreadyScheduled) {
         std::cerr << "Finish has been sent!\n";
         return false;
     }
@@ -280,16 +333,27 @@ bool VideoRecorder::finishRecording()
         return false;
     }
 
-    if (m_finishRecordingAlreadySent) {
+    if (m_finishRecordingAlreadyScheduled) {
+        m_videoCv.notify_one();
         return true;
     }
 
-    GstEvent *eosEvent = gst_event_new_eos();
-    auto result = gst_element_send_event(m_pipeline, eosEvent);
-    if (!result) {
-        std::cerr << "Can't send end of stream event\n";
-        gst_event_unref(eosEvent);
-    }
-    m_finishRecordingAlreadySent = true;
+    m_finishRecordingAlreadyScheduled = true;
+    m_videoCv.notify_one();
     return true;
+}
+
+void VideoRecorder::waitForFinish()
+{
+    if (!m_gstComponentsOk) {
+        std::cerr << "Some errors occured in gstreamer while trying to wait for finish recording\n";
+        return;
+    }
+
+    if (!m_finishRecordingAlreadyScheduled) {
+        finishRecording();
+    }
+
+    std::unique_lock<std::mutex> ul(m_waitingRecordingMutex);
+    m_waitingRecordingFinishCv.wait(ul, [this]() { return m_recordingFinished; });
 }

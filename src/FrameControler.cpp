@@ -157,7 +157,7 @@ void FrameControler::runDetection(const Frame &frame)
     }).detach();
 }
 
-void FrameControler::recording(const std::string& filename, uint32_t frameNr, uint32_t frameInBuffer)
+void FrameControler::recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer)
 {
     std::lock_guard<std::mutex> lg(m_recorderMutex);
     if (m_videoRecorder) {
@@ -216,8 +216,18 @@ void FrameControler::feedRecorder(const Frame& frame)
     }
     else {
         if (m_videoRecorder) {
-            m_videoRecorder->finishRecording();
-            m_videoRecorder.reset();
+            //below save last+1 frame to check last part of video is ok - should not have to many difference especially in time
+            //std::string filePath = m_videoRecorder->recordingFilePath();
+            //filePath += currentDateTime();
+            //filePath += "_endRecording";
+            //std::string nextFrameAfterFinishPath = filePath + ".png";
+            //PngTools::writePngFile(nextFrameAfterFinishPath.c_str(), m_width, m_height, m_components, frame.data.data());
+
+            std::thread t([](std::unique_ptr<VideoRecorder> videoRecorder) {
+                videoRecorder->waitForFinish();
+                std::cout << "Finished recording: " << videoRecorder->recordingFilePath() << "\n";
+            }, std::move(m_videoRecorder));
+            t.detach();
         }
     }
 }

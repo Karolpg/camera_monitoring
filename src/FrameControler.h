@@ -37,7 +37,7 @@ public:
 private:
     bool isFrameChanged(const Frame& f1, const Frame& f2) const;
     void runDetection(const Frame& frame);
-    void recording(const std::string& filename, uint32_t frameNr, uint32_t frameInBuffer);
+    void recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer);
     void feedRecorder(const Frame& frame);
     void sendNotification();
 

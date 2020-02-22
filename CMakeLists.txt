@@ -31,6 +31,7 @@ target_link_libraries(${TARGET_NAME} gstreamer-1.0
                                      glib-2.0
                                      gstaudio-1.0
                                      gstvideo-1.0
+                                     #gstbase-1.0
                                      pthread
                                      PNG::PNG
                                      darknet::darknet
