@@ -9,6 +9,7 @@ set(SOURCES src/main.cpp
             src/Config.h
             src/Detector.cpp
             src/Detector.h
+            src/Frame.h
             src/FrameControler.cpp
             src/FrameControler.h
             src/Letters.cpp
