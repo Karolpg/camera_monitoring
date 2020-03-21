@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.4)
+cmake_minimum_required(VERSION 3.16)
 set(TARGET_NAME camera_monitoring)
 project(${TARGET_NAME})
 
@@ -12,10 +12,14 @@ set(SOURCES src/main.cpp
             src/Frame.h
             src/FrameControler.cpp
             src/FrameControler.h
+            src/HttpCommunication.cpp
+            src/HttpCommunication.h
             src/Letters.cpp
             src/Letters.h
             src/PngTools.cpp
             src/PngTools.h
+            src/SlackCommunication.cpp
+            src/SlackCommunication.h
             src/VideoGrabber.cpp
             src/VideoGrabber.h
             src/VideoRecorder.cpp
@@ -26,6 +30,7 @@ add_executable(${TARGET_NAME} ${SOURCES})
 find_package(PNG REQUIRED)
 find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
 find_package(OpenMP)
+find_package(CURL REQUIRED)
 
 target_link_libraries(${TARGET_NAME} gstreamer-1.0 
                                      gobject-2.0 
@@ -36,7 +41,8 @@ target_link_libraries(${TARGET_NAME} gstreamer-1.0
                                      pthread
                                      PNG::PNG
                                      darknet::darknet
-                                     OpenMP::OpenMP_CXX)
+                                     OpenMP::OpenMP_CXX
+                                     CURL::libcurl)
 
 target_include_directories(${TARGET_NAME} PRIVATE /usr/include/gstreamer-1.0 
                                                   /usr/include/glib-2.0 
