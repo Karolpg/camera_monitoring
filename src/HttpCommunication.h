@@ -21,5 +21,11 @@ public:
     Response put();
 
 private:
+    enum class MSG_TYPE {
+        GET, POST, PUT
+    };
+    Response setMsgType(MSG_TYPE type);
+    Response executeRequest();
+
     void *m_easyhandle = nullptr;
 };

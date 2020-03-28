@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <set>
 #include "HttpCommunication.h"
 
 class SlackCommunication
@@ -28,7 +29,7 @@ public:
 
     // TODO: send image or even video
 
-private:    
+private:
     std::string m_address;
     std::string m_bearerId;
     HttpCommunication m_http;
@@ -36,4 +37,6 @@ private:
     HttpCommunication::HeaderList m_headers;
     std::string m_joinChannelAdr;
     std::string m_chatPostAdr;
+
+    std::set<std::string> m_alreadyJoinedChannels;
 };

@@ -37,5 +37,6 @@ int main(int argc, char *argv[])
     VideoGrabber videoGrabber(cfg.getValue("cameraUrl"));
     videoGrabber.getFrameControler().setDetector(yoloDetector);
     videoGrabber.hangOnPlay();
+
     return 0;
 }

@@ -170,18 +170,37 @@ HttpCommunication::~HttpCommunication()
 
 HttpCommunication::Response HttpCommunication::get()
 {
-    SET_OPT_HTTP_COM(CURLOPT_HTTPGET, 1L);
-    SET_OPT_HTTP_COM(CURLOPT_POST, 0L);
-    SET_OPT_HTTP_COM(CURLOPT_NOBODY, 0L);
+    std::cout << "--------------------------------------------------------------------------GET\n";
+    std::cout.flush();
 
-    return {{},{}};
+    if (!m_easyhandle) {
+        static const std::string msg("Easy-handle wasn't initialized! Get can't be berformed!");
+        std::cerr << msg << "\n";
+        return {{}, msg};
+    }
+
+    if (auto response = setMsgType(MSG_TYPE::GET); response.errorMsg.has_value()) {
+        return response;
+    }
+    SET_OPT_HTTP_COM(CURLOPT_NOBODY, 0L); // TODO check it
+
+
+    return executeRequest();
 }
 
 HttpCommunication::Response HttpCommunication::post(const std::string& address, const HeaderList &headers, const std::string& data)
 {
+    std::cout << "--------------------------------------------------------------------------POST\n";
+    std::cout.flush();
+
     if (!m_easyhandle) {
-        std::cerr << "Easy-handle wasn't initialized! Post can't be berformed!\n ";
-        return {{}, "Easy-handle wasn't initialized! Post can't be berformed!"};
+        static const std::string msg("Easy-handle wasn't initialized! Post can't be berformed!");
+        std::cerr << msg << "\n";
+        return {{}, msg};
+    }
+
+    if (auto response = setMsgType(MSG_TYPE::POST); response.errorMsg.has_value()) {
+        return response;
     }
 
     SET_OPT_HTTP_COM(CURLOPT_URL, address.c_str());
@@ -189,21 +208,68 @@ HttpCommunication::Response HttpCommunication::post(const std::string& address, 
     SET_OPT_HTTP_COM(CURLOPT_POSTFIELDSIZE, data.size());
     SET_OPT_HTTP_COM(CURLOPT_POSTFIELDS, data.data());
 
-    SET_OPT_HTTP_COM(CURLOPT_VERBOSE, 1L);
-    SET_OPT_HTTP_COM(CURLOPT_HTTPGET, 0L);
-    SET_OPT_HTTP_COM(CURLOPT_POST, 1L);
-
-    std::string responseDataString;
-    std::string responseHeaderString;
-    SET_OPT_HTTP_COM(CURLOPT_WRITEFUNCTION, writeStr);
-    SET_OPT_HTTP_COM(CURLOPT_WRITEDATA, &responseDataString);
-    SET_OPT_HTTP_COM(CURLOPT_HEADERDATA, &responseHeaderString);
+    //SET_OPT_HTTP_COM(CURLOPT_VERBOSE, 1L);
 
     CurlList headerObj;
     for (const auto& h : headers) {
         headerObj.add(h.c_str());
     }
     SET_OPT_HTTP_COM(CURLOPT_HTTPHEADER, headerObj.listObj());
+
+    return executeRequest();
+}
+
+HttpCommunication::Response HttpCommunication::put()
+{
+    std::cout << "--------------------------------------------------------------------------PUT\n";
+    std::cout.flush();
+
+    if (!m_easyhandle) {
+        static const std::string msg("Easy-handle wasn't initialized! Post can't be berformed!");
+        std::cerr << msg << "\n";
+        return {{}, msg};
+    }
+
+    if (auto response = setMsgType(MSG_TYPE::PUT); response.errorMsg.has_value()) {
+        return response;
+    }
+
+    // TODO add PUT data
+
+    return executeRequest();
+}
+
+HttpCommunication::Response HttpCommunication::setMsgType(HttpCommunication::MSG_TYPE type)
+{
+    switch(type) {
+    case MSG_TYPE::GET:
+        SET_OPT_HTTP_COM(CURLOPT_HTTPGET, 1L);
+        SET_OPT_HTTP_COM(CURLOPT_POST, 0L);
+        SET_OPT_HTTP_COM(CURLOPT_PUT, 0L);
+        break;
+    case MSG_TYPE::POST:
+        SET_OPT_HTTP_COM(CURLOPT_HTTPGET, 0L);
+        SET_OPT_HTTP_COM(CURLOPT_POST, 1L);
+        SET_OPT_HTTP_COM(CURLOPT_PUT, 0L);
+        break;
+    case MSG_TYPE::PUT:
+        SET_OPT_HTTP_COM(CURLOPT_HTTPGET, 0L);
+        SET_OPT_HTTP_COM(CURLOPT_POST, 0L);
+        SET_OPT_HTTP_COM(CURLOPT_PUT, 1L);
+        break;
+    default:
+        break;
+    }
+    return {{}, {}};
+}
+
+HttpCommunication::Response HttpCommunication::executeRequest()
+{
+    std::string responseDataString;
+    std::string responseHeaderString;
+    SET_OPT_HTTP_COM(CURLOPT_WRITEFUNCTION, writeStr);
+    SET_OPT_HTTP_COM(CURLOPT_WRITEDATA, &responseDataString);
+    SET_OPT_HTTP_COM(CURLOPT_HEADERDATA, &responseHeaderString);
 
     if (CURLcode performResult = curl_easy_perform(m_easyhandle); performResult != CURLE_OK) {
         std::cerr << "curl_easy_perform Error: " << performResult << " " << curlCodeToStr(performResult) << "\n" << curl_easy_strerror(performResult) << "\n";
@@ -212,7 +278,4 @@ HttpCommunication::Response HttpCommunication::post(const std::string& address, 
     return {responseDataString, {}};
 }
 
-HttpCommunication::Response HttpCommunication::put()
-{
-    return {{},{}};
-}
+

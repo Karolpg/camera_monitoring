@@ -32,6 +32,11 @@ find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
 find_package(OpenMP)
 find_package(CURL REQUIRED)
 
+find_package(RapidJSON)
+if (NOT RapidJSON_FOUND)
+    message(FATAL_ERROR "Please install: sudo apt install rapidjson-dev")
+endif()
+
 target_link_libraries(${TARGET_NAME} gstreamer-1.0 
                                      gobject-2.0 
                                      glib-2.0
@@ -46,7 +51,8 @@ target_link_libraries(${TARGET_NAME} gstreamer-1.0
 
 target_include_directories(${TARGET_NAME} PRIVATE /usr/include/gstreamer-1.0 
                                                   /usr/include/glib-2.0 
-                                                  /usr/lib/x86_64-linux-gnu/glib-2.0/include)
+                                                  /usr/lib/x86_64-linux-gnu/glib-2.0/include
+                                                  )
 
 target_compile_options(${TARGET_NAME} PRIVATE -fpermissive)
 
