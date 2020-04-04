@@ -18,6 +18,35 @@ private:
 
 };
 
+class MimeWrapper {
+public:
+    MimeWrapper(CURL *curlhandle, const HttpCommunication::Mimes &mimes) {
+        if (mimes.empty())
+            return;
+        m_multipart = curl_mime_init(curlhandle);
+        for (const auto& mime : mimes) {
+            curl_mimepart *part = curl_mime_addpart(m_multipart);
+            curl_mime_name(part, mime.name.c_str());
+            if (mime.filepath.has_value()) curl_mime_filedata(part, mime.filepath.value().c_str());
+            if (mime.fileName.has_value()) curl_mime_filename(part, mime.fileName.value().c_str());
+            if (mime.fileType.has_value()) curl_mime_type    (part, mime.fileType.value().c_str());
+            if (mime.encoder.has_value() ) curl_mime_encoder (part, mime.encoder.value().c_str() );
+
+            if (mime.data.has_value())     curl_mime_data    (part, mime.data.value().data(), mime.data.value().size());
+            //if (mime.data_cb.has_value()) curl_mime_data_cb(part, (curl_off_t) datasize, myreadfunc, NULL, NULL, arg);  // TODO :)
+        }
+    }
+    ~MimeWrapper() {
+        if (m_multipart) {
+           curl_mime_free(m_multipart);
+        }
+    }
+
+    curl_mime *mimeObj() const { return m_multipart; }
+private:
+    curl_mime *m_multipart = nullptr;
+};
+
 static const char* curlCodeToStr(CURLcode code)
 {
     switch(code) {
@@ -188,7 +217,10 @@ HttpCommunication::Response HttpCommunication::get()
     return executeRequest();
 }
 
-HttpCommunication::Response HttpCommunication::post(const std::string& address, const HeaderList &headers, const std::string& data)
+HttpCommunication::Response HttpCommunication::post(const std::string& address,
+                                                    const HeaderList &headers,
+                                                    const std::string& data,
+                                                    const Mimes &mimes)
 {
     std::cout << "--------------------------------------------------------------------------POST\n";
     std::cout.flush();
@@ -205,16 +237,32 @@ HttpCommunication::Response HttpCommunication::post(const std::string& address, 
 
     SET_OPT_HTTP_COM(CURLOPT_URL, address.c_str());
 
-    SET_OPT_HTTP_COM(CURLOPT_POSTFIELDSIZE, data.size());
-    SET_OPT_HTTP_COM(CURLOPT_POSTFIELDS, data.data());
+    if (!data.empty()) {
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDSIZE, data.size());
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDS, data.data());
+    }
+    else {
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDSIZE, 0);
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDS, static_cast<const char*>(nullptr));
+    }
 
-    //SET_OPT_HTTP_COM(CURLOPT_VERBOSE, 1L);
+    SET_OPT_HTTP_COM(CURLOPT_VERBOSE, 1L);
 
     CurlList headerObj;
-    for (const auto& h : headers) {
-        headerObj.add(h.c_str());
+    if (!headers.empty()) {
+        for (const auto& h : headers) {
+            headerObj.add(h.c_str());
+        }
+        SET_OPT_HTTP_COM(CURLOPT_HTTPHEADER, headerObj.listObj());
     }
-    SET_OPT_HTTP_COM(CURLOPT_HTTPHEADER, headerObj.listObj());
+    else {
+        SET_OPT_HTTP_COM(CURLOPT_HTTPHEADER, static_cast<curl_slist*>(nullptr));
+    }
+
+    MimeWrapper mimeWrapper(m_easyhandle, mimes);
+    if (mimeWrapper.mimeObj()) {
+        SET_OPT_HTTP_COM(CURLOPT_MIMEPOST, mimeWrapper.mimeObj());
+    }
 
     return executeRequest();
 }

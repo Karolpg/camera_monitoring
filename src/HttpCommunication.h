@@ -13,11 +13,22 @@ public:
         std::optional<std::string> errorMsg;
     };
 
+    struct Mime {
+        std::string name;
+        std::optional<std::string> filepath;   // local path to file which has to be uploaded
+        std::optional<std::vector<char>> data; // some data if not provide any filePath
+        std::optional<std::string> fileName;   // can be anything e.g. "abc.jpg"
+        std::optional<std::string> fileType;   // e.g. "jpg"
+        std::optional<std::string> encoder;    // e.g. "base64"
+        //data_cb
+    };
+    using Mimes = std::vector<Mime>;
+
     HttpCommunication();
     ~HttpCommunication();
 
     Response get();
-    Response post(const std::string &address, const HeaderList &headers, const std::string &data);
+    Response post(const std::string &address, const HeaderList &headers, const std::string &data, const Mimes &mimes = Mimes());
     Response put();
 
 private:
