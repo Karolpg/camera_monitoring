@@ -5,12 +5,13 @@
 
 namespace PngTools {
 
+const uint32_t PNG_HEADER_SIZE = sizeof(png_struct) + sizeof(png_info);
+
 // Taken from https://gist.github.com/niw/5963798
 
-bool writePngFile(const char *filename, uint32_t width, uint32_t height, uint32_t components, const uint8_t* rawData)
+bool writePngFile(FILE *fileDescriptor, uint32_t width, uint32_t height, uint32_t components, const uint8_t* rawData)
 {
-    FILE *fp = fopen(filename, "wb");
-    if(!fp) return false;
+    if(!fileDescriptor) return false;
 
     png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
     if (!png) return false;
@@ -20,7 +21,7 @@ bool writePngFile(const char *filename, uint32_t width, uint32_t height, uint32_
 
     if (setjmp(png_jmpbuf(png))) return false;
 
-    png_init_io(png, fp);
+    png_init_io(png, fileDescriptor);
 
     int colorType = PNG_COLOR_TYPE_RGB;
     switch(components)
@@ -58,10 +59,18 @@ bool writePngFile(const char *filename, uint32_t width, uint32_t height, uint32_
     }
     png_write_end(png, nullptr);
 
-    fclose(fp);
-
     png_destroy_write_struct(&png, &info);
     return true;
+}
+
+bool writePngFile(const char *filename, uint32_t width, uint32_t height, uint32_t components, const uint8_t* rawData)
+{
+    FILE *fp = fopen(filename, "wb");
+
+    bool result = writePngFile(fp, width, height, components, rawData);
+    fclose(fp);
+
+    return result;
 }
 
 bool readPngFile(const char *filename, uint32_t& width, uint32_t& height, uint32_t& components, std::vector<uint8_t>& data)
