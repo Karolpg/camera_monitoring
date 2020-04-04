@@ -8,7 +8,7 @@
 class Config
 {
 public:
-    const std::string& getValue(const std::string& key) const;
+    const std::string& getValue(const std::string& key, const std::string& defaultVal = std::string()) const;
 
     template<typename T>
     T getValue(const std::string& key, const T& defaultVal, std::function<T(const std::string&)> converter) const

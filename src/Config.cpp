@@ -3,12 +3,11 @@
 #include <fstream>
 #include <iostream>
 
-const std::string& Config::getValue(const std::string& key) const
+const std::string &Config::getValue(const std::string &key, const std::string &defaultVal) const
 {
     auto it = m_keyValues.find(key);
-    static const std::string EMPTY;
     if (it == m_keyValues.end())
-        return EMPTY;
+        return defaultVal;
     return it->second;
 }
 
