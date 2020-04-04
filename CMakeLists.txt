@@ -20,6 +20,7 @@ set(SOURCES src/main.cpp
             src/PngTools.h
             src/SlackCommunication.cpp
             src/SlackCommunication.h
+            src/SlackFileTypes.cpp
             src/SlackFileTypes.h
             src/SlackSubscriber.cpp
             src/SlackSubscriber.h

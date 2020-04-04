@@ -185,6 +185,65 @@ SlackCommunication::SendAnswer SlackCommunication::sendFile(const Channels &chan
     HttpCommunication::Mime file;
     file.name = "file";
     file.filepath = filepath;
+    if (fileType != SlackFileType::autoType) {
+        file.fileType = slackFileTypeStr(fileType);
+    }
+    mimes.push_back(std::move(file));
+
+    HttpCommunication::Mime channelsMime;
+    channelsMime.name = "channels";
+    channelsMime.data = std::vector<char>(channels.begin(), channels.end());
+    mimes.push_back(std::move(channelsMime));
+
+    auto respond = m_http.post(m_fileUploadAdr, m_multipartHeaders, "", mimes);
+    if (respond.errorMsg.has_value()) {
+        return SendAnswer::FAIL;
+    }
+    assert(respond.serverAnswer.has_value());
+    std::string& serverRespond = respond.serverAnswer.value();
+
+    //std::cout << "\n\nServer respond is: " << serverRespond << "\n";
+
+    rapidjson::Document jsonDoc;
+    jsonDoc.Parse(serverRespond.c_str(), static_cast<rapidjson::SizeType>(serverRespond.length()));
+    if (jsonDoc.HasParseError()) {
+        rapidjson::ParseErrorCode error = jsonDoc.GetParseError();
+        std::cerr << "Error during parsing JSON: " << error << " (" << rapidjson::GetParseError_En(error) << ")\n";
+        std::cerr << "Server respond is: " << serverRespond << "\n";
+        return SendAnswer::FAIL;
+    }
+    if (!isTrue("ok", jsonDoc)) {
+        std::cerr << "Server respond is: " << serverRespond << "\n";
+        return SendAnswer::FAIL;
+    }
+
+    return SendAnswer::SUCCESS;
+}
+
+SlackCommunication::SendAnswer SlackCommunication::sendFile(const SlackCommunication::Channels &channelNames, const std::vector<char> &data, const std::string &filename, SlackFileType fileType)
+{
+    // token            Required
+    // channels         Optional   Comma-separated list of channel names or IDs where the file will be shared.
+    // content          Optional   File contents via a POST variable. If omitting this parameter, you must provide a file.
+    // file             Optional   File contents via multipart/form-data. If omitting this parameter, you must submit content.
+    // filename         Optional   Filename of file.
+    // filetype         Optional   A file type identifier.
+    // initial_comment  Optional   The message text introducing the file in specified channels.
+    // thread_ts        Optional   Provide another message's ts value to upload this file as a reply. Never use a reply's ts value; use its parent instead.
+    // title            Optional   Title of file.
+
+    std::string channels = channelNames.empty() ? "general" : channelNames[0];
+    for (uint32_t i = 1; i < channelNames.size(); ++i) {
+        channels += ',';
+        channels += channelNames[i];
+    }
+
+    HttpCommunication::Mimes mimes;
+    HttpCommunication::Mime file;
+    file.name = "file";
+    file.data = data;
+    file.fileName = filename;
+    file.fileType = slackFileTypeStr(fileType);
     mimes.push_back(std::move(file));
 
     HttpCommunication::Mime channelsMime;

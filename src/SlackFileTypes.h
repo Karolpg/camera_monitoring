@@ -122,5 +122,7 @@ enum class SlackFileType {
     xml,          // XML
     yaml,         // YAML
     zip,          // Zip
+    count_SlackFileType
 };
 
+const char* slackFileTypeStr(SlackFileType type);

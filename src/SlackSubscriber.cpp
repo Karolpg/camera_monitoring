@@ -1,4 +1,5 @@
 #include "SlackSubscriber.h"
+#include "PngTools.h"
 
 #include <iostream>
 
@@ -148,14 +149,32 @@ void SlackSubscriber::sendFrame()
     {
         std::lock_guard<std::mutex> lg(m_currentFrameQueueMtx);
         if (m_currentFrameQueue.empty()) {
-            std::cerr << "Fake invoke. There is no frame to send!";
+            std::cerr << "Fake invoke. There is no frame to send!\n";
             return;
         }
         frameData.swap(m_currentFrameQueue.front());
         m_currentFrameQueue.pop();
     }
-    m_slack->sendMessage(m_notifyChannels[0], u8"Frame ready to send :)");
-    //m_slack->sendFile(m_notifyChannels, )
+    std::string frameName = std::string(u8"frame_") + std::to_string(frameData->f.nr) + u8".png";
+    m_slack->sendMessage(m_notifyChannels[0], std::string(u8"Frame ready to send :) ") + frameName);
+
+
+    uint32_t rawSize = frameData->fd.width * frameData->fd.height * frameData->fd.components;
+    uint32_t abc = PngTools::PNG_HEADER_SIZE;
+    std::vector<char> pngFile(abc + rawSize, '\0');
+    FILE* fd = fmemopen(pngFile.data(), pngFile.size(), "wb");
+    if (PngTools::writePngFile(fd, frameData->fd.width, frameData->fd.height, frameData->fd.components, frameData->f.data.data())) {
+        fclose(fd);
+        std::cout << "abc " << abc << " aaaaaa  " << pngFile.size() << " next F_tell: " << ftell(fd) << "\n";
+        std::cout.flush();
+
+        pngFile.resize(static_cast<uint32_t>(ftell(fd)));
+        m_slack->sendFile(m_notifyChannels, pngFile, frameName, SlackFileType::png);
+    }
+    else  {
+        std::cerr << "Can't prepare png in memory!\n";
+        fclose(fd);
+    }
 }
 
 void SlackSubscriber::sendDetectionData()
@@ -167,7 +186,7 @@ void SlackSubscriber::sendDetectionData()
     {
         std::lock_guard<std::mutex> lg(m_detectionQueueMtx);
         if (m_detectionQueue.empty()) {
-            std::cerr << "Fake invoke. There is no detection to send!";
+            std::cerr << "Fake invoke. There is no detection to send!\n";
             return;
         }
         detectionData.swap(m_detectionQueue.front());
@@ -186,7 +205,7 @@ void SlackSubscriber::sendVideo()
     {
         std::lock_guard<std::mutex> lg(m_videoQueueMtx);
         if (m_videoQueue.empty()) {
-            std::cerr << "Fake invoke. There is no video to send!";
+            std::cerr << "Fake invoke. There is no video to send!\n";
             return;
         }
         videoFilePath.swap(m_videoQueue.front());
