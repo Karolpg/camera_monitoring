@@ -5,7 +5,7 @@
 #include "VideoGrabber.h"
 #include "Detector.h"
 #include "Config.h"
-#include "SlackCommunication.h"
+#include "SlackSubscriber.h"
 
 int main(int argc, char *argv[])
 {
@@ -19,14 +19,6 @@ int main(int argc, char *argv[])
     Config cfg;
     cfg.insertFromFile(configFilePath);
 
-    std::shared_ptr<SlackCommunication> slack = std::make_shared<SlackCommunication>(cfg.getValue("slackAddress"),
-                                                                                     cfg.getValue("slackBearerId"));
-    std::string reportingChannel = cfg.getValue("slackReportChannel");
-    if (!slack->sendWelcomMessage(reportingChannel)) {
-        std::cerr << "Slack is not ready and can't be used!\n";
-        slack.reset();
-    }
-
     std::shared_ptr<Detector> yoloDetector = std::shared_ptr<Detector>(
                 new Detector(cfg.getValue("darknetCfgFilePath"),
                              cfg.getValue("darknetWeightsFilePath"),
@@ -36,6 +28,10 @@ int main(int argc, char *argv[])
 
     VideoGrabber videoGrabber(cfg.getValue("cameraUrl"));
     videoGrabber.getFrameControler().setDetector(yoloDetector);
+
+    SlackSubscriber slackSub(cfg);
+    slackSub.subscribe(videoGrabber.getFrameControler());
+
     videoGrabber.hangOnPlay();
 
     return 0;

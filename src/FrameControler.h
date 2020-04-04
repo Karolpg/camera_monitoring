@@ -16,6 +16,7 @@ class VideoRecorder;
 class FrameControler
 {
 public:
+    using OnDie = std::function<void(void *ctx)>;
     using OnCurrentFrameReady = std::function<void(const Frame& f, const FrameDescr& fd, void* ctx)>;
     using OnDetect = std::function<void(const Frame& f, const FrameDescr& fd, const std::string& detectionInfo, void* ctx)>;
     using OnVideoReady = std::function<void(const std::string& filePath, void* ctx)>;
@@ -32,9 +33,17 @@ public:
     uint32_t getHeight() const { return m_frameDescr.height; }
     uint32_t getComponents() const { return m_frameDescr.components; }
 
-    bool subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void* ctx = nullptr, bool notifyOnce = true);
-    bool subscribeOnDetection(OnDetect notifyFunc, void* ctx = nullptr);
-    bool subscribeOnDetectionVideoReady(OnVideoReady notifyFunc, void* ctx = nullptr);
+    void subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void* ctx = nullptr, bool notifyOnce = true);
+    void unsubscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void* ctx = nullptr); // only for notifyOnce = false
+
+    void subscribeOnDetection(OnDetect notifyFunc, void* ctx = nullptr);
+    void unsubscribeOnDetection(OnDetect notifyFunc, void* ctx = nullptr);
+
+    void subscribeOnDetectionVideoReady(OnVideoReady notifyFunc, void* ctx = nullptr);
+    void unsubscribeOnDetectionVideoReady(OnVideoReady notifyFunc, void* ctx = nullptr);
+
+    void subscribeOnDie(OnDie notifyFunc, void* ctx);
+    void unsubscribeOnDie(OnDie notifyFunc, void* ctx);
 private:
     bool isFrameChanged(const Frame& f1, const Frame& f2) const;
     void runDetection(const Frame& frame);
@@ -67,4 +76,5 @@ private:
     std::vector<std::tuple<void*, OnCurrentFrameReady>> m_currentFrameListener;
     std::vector<std::tuple<void*, OnDetect>> m_detectListener;
     std::vector<std::tuple<void*, OnVideoReady>> m_videoReadyListener;
+    std::vector<std::tuple<void*, OnDie>> m_dieListener;
 };

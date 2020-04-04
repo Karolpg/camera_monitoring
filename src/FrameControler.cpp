@@ -28,7 +28,7 @@ static bool storeFrame(const Frame& frame, uint32_t width, uint32_t height, uint
 }
 
 static std::string currentDateTime() {
-    time_t now = time(0);
+    time_t now = time(nullptr);
     char buf[128];
     tm  *timeMember = localtime(&now);
     strftime(buf, sizeof(buf), "%Y-%m-%d.%X", timeMember);
@@ -42,7 +42,11 @@ FrameControler::FrameControler()
 
 FrameControler::~FrameControler()
 {
-
+    for (const auto& tuple : m_dieListener) {
+        void* ctx = std::get<0>(tuple);
+        OnDie func = std::get<1>(tuple);
+        func(ctx);
+    }
 }
 
 
@@ -321,7 +325,19 @@ bool FrameControler::isFrameChanged(const Frame& f1, const Frame& f2) const
     return (pixelDiff > PIXEL_COUNT_THRESHOLD);
 }
 
-bool FrameControler::subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void *ctx, bool notifyOnce)
+namespace  {
+
+template<typename T, typename... U>
+void* functionAddress(std::function<T(U...)> f) {
+    typedef T(fnType)(U...);
+    fnType **fnPtr = f.template target<fnType*>();
+    return reinterpret_cast<void*>(*fnPtr);
+}
+
+} // namespace
+
+
+void FrameControler::subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void *ctx, bool notifyOnce)
 {
     if (notifyOnce) {
         const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
@@ -331,20 +347,73 @@ bool FrameControler::subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, voi
         const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
         m_currentFrameListener.push_back(std::make_tuple(ctx, notifyFunc));
     }
-    return true;
 }
 
-bool FrameControler::subscribeOnDetection(OnDetect notifyFunc, void *ctx)
+void FrameControler::unsubscribeOnCurrentFrame(FrameControler::OnCurrentFrameReady notifyFunc, void *ctx)
+{
+    const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
+    for (auto it = m_currentFrameListener.begin(); it != m_currentFrameListener.end();) {
+        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+            it = m_currentFrameListener.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
+void FrameControler::subscribeOnDetection(OnDetect notifyFunc, void *ctx)
 {
     const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
     m_detectListener.push_back(std::make_tuple(ctx, notifyFunc));
-    return true;
 }
 
-bool FrameControler::subscribeOnDetectionVideoReady(OnVideoReady notifyFunc, void *ctx)
+void FrameControler::unsubscribeOnDetection(FrameControler::OnDetect notifyFunc, void *ctx)
+{
+    const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
+    for (auto it = m_detectListener.begin(); it != m_detectListener.end();) {
+        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+            it = m_detectListener.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
+void FrameControler::subscribeOnDetectionVideoReady(OnVideoReady notifyFunc, void *ctx)
 {
     const std::lock_guard<std::mutex> lock(m_listenerVideoReadyMutex);
     m_videoReadyListener.push_back(std::make_tuple(ctx, notifyFunc));
-    return true;
+}
+
+void FrameControler::unsubscribeOnDetectionVideoReady(FrameControler::OnVideoReady notifyFunc, void *ctx)
+{
+    const std::lock_guard<std::mutex> lock(m_listenerVideoReadyMutex);
+    for (auto it = m_videoReadyListener.begin(); it != m_videoReadyListener.end();) {
+        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+            it = m_videoReadyListener.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
+void FrameControler::subscribeOnDie(FrameControler::OnDie notifyFunc, void *ctx)
+{
+    m_dieListener.push_back(std::make_tuple(ctx, notifyFunc));
+}
+
+void FrameControler::unsubscribeOnDie(FrameControler::OnDie notifyFunc, void *ctx)
+{
+    for (auto it = m_dieListener.begin(); it != m_dieListener.end();) {
+        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+            it = m_dieListener.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
 }
 

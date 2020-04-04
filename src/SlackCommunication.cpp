@@ -10,6 +10,7 @@
 namespace  {
 const std::string URL_ENC_HEADER {"Content-Type: application/x-www-form-urlencoded"};
 const std::string JSON_HEADER {"Content-type: application/json; charset=utf-8"};
+const std::string MULTIPART_FORM_DATA_HEADER {"Content-type: multipart/form-data"};
 
 
 bool isTrue(const std::string& key, const rapidjson::Document& jsonDoc)
@@ -40,10 +41,16 @@ SlackCommunication::SlackCommunication(const std::string &address, const std::st
         m_address += '/';
     }
 
-    m_headers.push_back(JSON_HEADER);
-    m_headers.push_back(std::string("Authorization: Bearer ") + m_bearerId);
+    std::string authorizationHeader = std::string("Authorization: Bearer ") + m_bearerId;
+    m_jsonHeaders.push_back(JSON_HEADER);
+    m_jsonHeaders.push_back(authorizationHeader);
+
+    m_multipartHeaders.push_back(MULTIPART_FORM_DATA_HEADER);
+    m_multipartHeaders.push_back(authorizationHeader);
+
     m_joinChannelAdr = m_address + "channels.join";
     m_chatPostAdr = m_address + "chat.postMessage";
+    m_fileUploadAdr = m_address + "files.upload";
 }
 
 SlackCommunication::~SlackCommunication()
@@ -67,7 +74,7 @@ SlackCommunication::JoinChannelAnswer SlackCommunication::joinChannel(const std:
 
     jsonWriter.EndObject();
 
-    auto respond = m_http.post(m_joinChannelAdr, m_headers, sb.GetString());
+    auto respond = m_http.post(m_joinChannelAdr, m_jsonHeaders, sb.GetString());
     if (respond.errorMsg.has_value()) {
         return JoinChannelAnswer::FAIL;
     }
@@ -115,7 +122,7 @@ SlackCommunication::SendAnswer SlackCommunication::sendMessage(const std::string
     jsonWriter.EndObject();
 
 
-    auto respond = m_http.post(m_chatPostAdr, m_headers, sb.GetString());
+    auto respond = m_http.post(m_chatPostAdr, m_jsonHeaders, sb.GetString());
     if (respond.errorMsg.has_value()) {
         return SendAnswer::FAIL;
     }
@@ -154,4 +161,58 @@ bool SlackCommunication::sendWelcomMessage(const std::string& channelName)
     }
     std::cerr << "Can't join Slack channel: " << channelName << "\n";
     return false;
+}
+
+SlackCommunication::SendAnswer SlackCommunication::sendFile(const Channels &channelNames, const std::string &filepath, SlackFileType fileType)
+{
+    // token            Required
+    // channels         Optional   Comma-separated list of channel names or IDs where the file will be shared.
+    // content          Optional   File contents via a POST variable. If omitting this parameter, you must provide a file.
+    // file             Optional   File contents via multipart/form-data. If omitting this parameter, you must submit content.
+    // filename         Optional   Filename of file.
+    // filetype         Optional   A file type identifier.
+    // initial_comment  Optional   The message text introducing the file in specified channels.
+    // thread_ts        Optional   Provide another message's ts value to upload this file as a reply. Never use a reply's ts value; use its parent instead.
+    // title            Optional   Title of file.
+
+    std::string channels = channelNames.empty() ? "general" : channelNames[0];
+    for (uint32_t i = 1; i < channelNames.size(); ++i) {
+        channels += ',';
+        channels += channelNames[i];
+    }
+
+    HttpCommunication::Mimes mimes;
+    HttpCommunication::Mime file;
+    file.name = "file";
+    file.filepath = filepath;
+    mimes.push_back(std::move(file));
+
+    HttpCommunication::Mime channelsMime;
+    channelsMime.name = "channels";
+    channelsMime.data = std::vector<char>(channels.begin(), channels.end());
+    mimes.push_back(std::move(channelsMime));
+
+    auto respond = m_http.post(m_fileUploadAdr, m_multipartHeaders, "", mimes);
+    if (respond.errorMsg.has_value()) {
+        return SendAnswer::FAIL;
+    }
+    assert(respond.serverAnswer.has_value());
+    std::string& serverRespond = respond.serverAnswer.value();
+
+    //std::cout << "\n\nServer respond is: " << serverRespond << "\n";
+
+    rapidjson::Document jsonDoc;
+    jsonDoc.Parse(serverRespond.c_str(), static_cast<rapidjson::SizeType>(serverRespond.length()));
+    if (jsonDoc.HasParseError()) {
+        rapidjson::ParseErrorCode error = jsonDoc.GetParseError();
+        std::cerr << "Error during parsing JSON: " << error << " (" << rapidjson::GetParseError_En(error) << ")\n";
+        std::cerr << "Server respond is: " << serverRespond << "\n";
+        return SendAnswer::FAIL;
+    }
+    if (!isTrue("ok", jsonDoc)) {
+        std::cerr << "Server respond is: " << serverRespond << "\n";
+        return SendAnswer::FAIL;
+    }
+
+    return SendAnswer::SUCCESS;
 }
