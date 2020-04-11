@@ -2,6 +2,26 @@
 #include "PngTools.h"
 
 #include <iostream>
+#include <fstream>
+//#include <filesystem> GCC 8.0 needed
+
+namespace  {
+
+size_t file_size(const std::string& filePath)
+{
+    std::fstream file;
+    file.open(filePath, std::ios_base::in|std::ios_base::binary);
+    if (!file.is_open()) {
+        return 0;
+    }
+    file.seekg(0, std::ios_base::end);
+    auto result = file.tellg();
+    file.close();
+    return result < 0 ? 0 : size_t(result);
+}
+
+}
+
 
 SlackSubscriber::SlackSubscriber(const Config &cfg)
     : m_cfg(cfg)
@@ -223,6 +243,15 @@ void SlackSubscriber::sendVideo()
         m_videoQueue.pop();
     }
 
-    m_slack->sendMessage(m_notifyChannels[0], std::string(u8"Sending: ") + *videoFilePath);
-    m_slack->sendFile(m_notifyChannels, *videoFilePath);
+    double videoSize = file_size(*videoFilePath);
+    //double videoSize = std::filesystem::file_size(*videoFilePath);
+    videoSize /= (1024.0 * 1024.0);
+
+    std::string text = std::string(u8"Video: ") + *videoFilePath + u8" is ready to send. Size: " + std::to_string(videoSize)
+            + u8" [MB]. If you want to download respond with: ... - this is not ready!!!.";
+
+    m_slack->sendMessage(m_notifyChannels[0], text);
+
+    //m_slack->sendMessage(m_notifyChannels[0], std::string(u8"Sending: ") + *videoFilePath);
+    //m_slack->sendFile(m_notifyChannels, *videoFilePath);
 }

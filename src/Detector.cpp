@@ -32,10 +32,10 @@ Detector::Detector(const std::string& netConfigFilePath,
     assert(m_net->w * m_net->h * m_net->c > 0);
 
     m_netInput.resize(static_cast<size_t>(m_net->w * m_net->h * m_net->c), 0.0f);
-    m_outNetImage.data.resize(static_cast<size_t>(m_net->w * m_net->h * m_net->c), 0);
-    m_outNetImage.w = static_cast<uint32_t>(m_net->w);
-    m_outNetImage.h = static_cast<uint32_t>(m_net->h);
-    m_outNetImage.c = static_cast<uint32_t>(m_net->c);
+    m_outNetImage.frame.data.resize(static_cast<size_t>(m_net->w * m_net->h * m_net->c), 0);
+    m_outNetImage.descr.width = static_cast<uint32_t>(m_net->w);
+    m_outNetImage.descr.height = static_cast<uint32_t>(m_net->h);
+    m_outNetImage.descr.components = static_cast<uint32_t>(m_net->c);
 }
 
 Detector::~Detector()
@@ -79,18 +79,18 @@ float avarageColor(uint32_t x, uint32_t y, uint32_t c,
     return 0.f;
 }
 
-void Detector::setInput(const uint8_t* data, uint32_t width, uint32_t height, uint32_t components)
+void Detector::setInput(const Frame &frame, const FrameDescr &descr)
 {
-    assert(data);
-    assert(width);
-    assert(height);
-    assert(components);
+    assert(frame.data.size());
+    assert(descr.width);
+    assert(descr.height);
+    assert(descr.components);
 
-    m_inImage.data.resize(width*height*components);
-    std::memcpy(m_inImage.data.data(), data, width*height*components);
-    m_inImage.w = width;
-    m_inImage.h = height;
-    m_inImage.c = components;
+    m_inImage.frame = frame;
+    m_inImage.descr = descr;
+    m_outNetImage.frame.nr = frame.nr;
+    m_outNetImage.frame.time = frame.time;
+    m_outNetImage.frame.bufferIdx = frame.bufferIdx;
 }
 
 bool Detector::detect()
@@ -99,7 +99,7 @@ bool Detector::detect()
     m_outNetImageHasLabels = false;
     m_inImageHasLabels = false;
 
-    assert(m_inImage.data.size());
+    assert(m_inImage.frame.data.size());
 
     if (!m_net) {
         assert(!"Network not created!\n");
@@ -111,16 +111,16 @@ bool Detector::detect()
     const uint32_t h = static_cast<uint32_t>(m_net->h);
     uint32_t newX = 0;
     uint32_t newY = 0;
-    uint32_t newW = m_inImage.w;
-    uint32_t newH = m_inImage.h;
-    if ((static_cast<float>(w)/m_inImage.w) < (static_cast<float>(h)/m_inImage.h)) {
+    uint32_t newW = m_inImage.descr.width;
+    uint32_t newH = m_inImage.descr.height;
+    if ((static_cast<float>(w)/m_inImage.descr.width) < (static_cast<float>(h)/m_inImage.descr.height)) {
         newW = w;
-        newH = (m_inImage.h * w)/m_inImage.w;
+        newH = (m_inImage.descr.height * w)/m_inImage.descr.width;
         newX = 0;
         newY = (h-newH)/2;
     } else {
         newH = h;
-        newW = (m_inImage.w * h)/m_inImage.h;
+        newW = (m_inImage.descr.width * h)/m_inImage.descr.height;
         newX = (w-newW)/2;
         newY = 0;
     }
@@ -130,11 +130,11 @@ bool Detector::detect()
     m_netScaledImageH = newH;
 
     //rescale
-    if (m_inImage.c >= static_cast<uint32_t>(m_net->c)) {
+    if (m_inImage.descr.components >= static_cast<uint32_t>(m_net->c)) {
         const uint32_t c = static_cast<uint32_t>(m_net->c);
 
-        double wAspect = static_cast<double>(m_inImage.w) / static_cast<double>(newW);
-        double hAspect = static_cast<double>(m_inImage.h) / static_cast<double>(newH);
+        double wAspect = static_cast<double>(m_inImage.descr.width) / static_cast<double>(newW);
+        double hAspect = static_cast<double>(m_inImage.descr.height) / static_cast<double>(newH);
 
         float clearValueF = 0.5f;
         int clearValue;
@@ -146,7 +146,9 @@ bool Detector::detect()
             for (uint32_t y = newY; y < newY + newH; ++y) {
                 for (uint32_t x = newX; x < newX + newW; ++x) {
                     uint32_t idx = y*w + x + netComponent*w*h;
-                    m_netInput[idx] = avarageColor(x-newX, y-newY, netComponent, m_inImage.data.data(), m_inImage.w, m_inImage.h, m_inImage.c, wAspect, hAspect);
+                    m_netInput[idx] = avarageColor(x-newX, y-newY, netComponent,
+                                                   m_inImage.frame.data.data(), m_inImage.descr.width, m_inImage.descr.height, m_inImage.descr.components,
+                                                   wAspect, hAspect);
                 }
             }
             //clear left right site
@@ -188,7 +190,7 @@ bool Detector::detect()
     float hier = 0.5f;
     int *map = nullptr;
     int relative = 1;
-    detection *dets = get_network_boxes(m_net, static_cast<int>(m_inImage.w), static_cast<int>(m_inImage.h), m_netThreshold, hier, map, relative, &nboxes);
+    detection *dets = get_network_boxes(m_net, static_cast<int>(m_inImage.descr.width), static_cast<int>(m_inImage.descr.height), m_netThreshold, hier, map, relative, &nboxes);
 
     const layer& lastLayer = m_net->layers[m_net->n-1];
 
@@ -224,12 +226,13 @@ const Detector::Image& Detector::getNetOutImg()
             for (uint32_t y = 0; y < h; ++y) {
                 for (uint32_t x = 0; x < w; ++x) {
                     // convert data from "RRRRRRRRRGGGGGGGGGBBBBBBBBB to "RGBRGBRGBRGBRGBRGBRGBRGBRGB"
-                    m_outNetImage.data[(y*w+x)*c+k] = static_cast<uint8_t>(m_netInput[y*w+x + w*h*k] * 255.f);
+                    m_outNetImage.frame.data[(y*w+x)*c+k] = static_cast<uint8_t>(m_netInput[y*w+x + w*h*k] * 255.f);
                 }
             }
         }
 
-        drawResults(m_outNetImage.data, m_outNetImage.w, m_outNetImage.h, m_outNetImage.c, m_netScaledImageX, m_netScaledImageY, m_netScaledImageW, m_netScaledImageH);
+        drawResults(m_outNetImage.frame.data, m_outNetImage.descr.width, m_outNetImage.descr.height, m_outNetImage.descr.components,
+                    m_netScaledImageX, m_netScaledImageY, m_netScaledImageW, m_netScaledImageH);
 
         m_outNetImageHasLabels = true;
     }
@@ -241,7 +244,7 @@ const Detector::Image& Detector::getNetOutImg()
 const Detector::Image& Detector::getLabeledInImg()
 {
     if (!m_inImageHasLabels) {
-        drawResults(m_inImage.data, m_inImage.w, m_inImage.h, m_inImage.c);
+        drawResults(m_inImage.frame.data, m_inImage.descr.width, m_inImage.descr.height, m_inImage.descr.components);
         m_inImageHasLabels = true;
     }
     return m_inImage;
@@ -395,10 +398,10 @@ void Detector::generateLabelsImg() const
     uint32_t textY = letterMargin;
 
     Image labelsImg;
-    labelsImg.data.resize(m_expectedLabelColors.size()*labelH*labelW*3, 0);
-    labelsImg.c = 3;
-    labelsImg.w = labelW;
-    labelsImg.h = static_cast<uint32_t>(labelH*m_expectedLabelColors.size());
+    labelsImg.frame.data.resize(m_expectedLabelColors.size()*labelH*labelW*3, 0);
+    labelsImg.descr.components = 3;
+    labelsImg.descr.width = labelW;
+    labelsImg.descr.height = static_cast<uint32_t>(labelH*m_expectedLabelColors.size());
     uint32_t i = 0;
     for(auto labelPair : m_expectedLabelColors) {
         uint32_t labelId = labelPair.first;
@@ -414,13 +417,14 @@ void Detector::generateLabelsImg() const
         for (uint32_t y = 0; y < labelH; ++y) {
             for (uint32_t x = 0; x < colorX; ++x) {
                 for (uint32_t c = 0; c < 3; ++c)
-                    labelsImg.data[i*labelH*labelW*3 + y*labelW*3 + x*3 + c] = rgb[c];
+                    labelsImg.frame.data[i*labelH*labelW*3 + y*labelW*3 + x*3 + c] = rgb[c];
             }
         }
 
-        drawString(labelsImg.data, labelsImg.w, labelsImg.h, labelsImg.c, textX, labelH*i + textY, labelText, 1.0f, labelColor, true);
+        drawString(labelsImg.frame.data, labelsImg.descr.width, labelsImg.descr.height, labelsImg.descr.components,
+                   textX, labelH*i + textY, labelText, 1.0f, labelColor, true);
 
         ++i;
     }
-    PngTools::writePngFile("/tmp/lables.png", labelsImg.w, labelsImg.h, labelsImg.c, labelsImg.data.data());
+    PngTools::writePngFile("/tmp/lables.png", labelsImg.descr.width, labelsImg.descr.height, labelsImg.descr.components, labelsImg.frame.data.data());
 }

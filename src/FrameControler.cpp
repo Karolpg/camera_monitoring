@@ -47,6 +47,24 @@ FrameControler::~FrameControler()
         OnDie func = std::get<1>(tuple);
         func(ctx);
     }
+    if (m_detectorFrame.joinable()) {
+        m_detectorFrame.join(); // wait if detector is running
+    }
+
+
+    for (;;) {
+        std::thread t;
+        {
+            std::lock_guard<std::mutex> lg(m_saveVideoThreadsMtx);
+            if (m_saveVideoThreads.empty())
+                break;
+            t.swap(m_saveVideoThreads.front());
+            m_saveVideoThreads.erase(m_saveVideoThreads.begin());
+        }
+        if (t.joinable()) {
+            t.join();
+        }
+    }
 }
 
 
@@ -77,8 +95,8 @@ void FrameControler::setBufferParams(double duration, double cameraFps, uint32_t
 void FrameControler::addFrame(const uint8_t* data)
 {
     assert(data);
-    uint64_t prevFrameNr = m_frameCtr;
-    uint32_t prevFrameInBuffer = static_cast<uint32_t>(prevFrameNr % m_cyclicBuffer.size());
+    //uint64_t prevFrameNr = m_frameCtr;
+    //uint32_t prevFrameInBuffer = static_cast<uint32_t>(prevFrameNr % m_cyclicBuffer.size());
 
     uint64_t frameNr = ++m_frameCtr;
     uint32_t frameInBuffer = static_cast<uint32_t>(frameNr % m_cyclicBuffer.size());
@@ -105,7 +123,7 @@ void FrameControler::runDetection(const Frame &frame)
         return;
     }
     // if detector is not processing, then data is copied into detector cache
-    m_detector->setInput(frame.data.data(), m_frameDescr.width, m_frameDescr.height, m_frameDescr.components);
+    m_detector->setInput(frame, m_frameDescr);
     m_detectionMutex.unlock();
 
     //
@@ -113,7 +131,11 @@ void FrameControler::runDetection(const Frame &frame)
     //
 
     // start worker thread, we suspect (generally know that) that this calculation is CPU expensive and we have to collect/consume incoming frames from camera.
-    std::thread( [this, frame = frame.nr, frameInBuffer = frame.bufferIdx]
+    if (m_detectorFrame.joinable()) {
+        m_detectorFrame.join(); // finish if any
+        //TODO do not create new thread, go sleep if there is nothing to do
+    }
+    m_detectorFrame = std::thread( [this, frame = frame.nr, frameInBuffer = frame.bufferIdx]
     {
         const std::lock_guard<std::mutex> lock(m_detectionMutex);
 
@@ -151,69 +173,76 @@ void FrameControler::runDetection(const Frame &frame)
             //                       detectedinImg.w, detectedinImg.h, detectedinImg.c, detectedinImg.data.data());
             //
             auto detectedOutImg = m_detector->getLabeledInImg();
-            PngTools::writePngFile(detectedFrameFilePath.c_str(), detectedOutImg.w, detectedOutImg.h, detectedOutImg.c, detectedOutImg.data.data());
+            PngTools::writePngFile(detectedFrameFilePath.c_str(),
+                                   detectedOutImg.descr.width, detectedOutImg.descr.height, detectedOutImg.descr.components, detectedOutImg.frame.data.data());
 
-            recording(videoFilePath, frame, frameInBuffer);
+            auto recordingResult = recording(videoFilePath, frame, frameInBuffer);
 
-            info += "Detection trigger storing video on: " + videoFilePath;
-            notifyAboutDetection(info);
+            if (recordingResult == StartedNewVideo) {
+                info += "Detection trigger storing video on: " + videoFilePath;
+            }
+            else {
+                info += "continue previos video";
+            }
+            notifyAboutDetection(info, detectedOutImg.frame, detectedOutImg.descr);
         }
         else {
             std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
             std::cout << "Nothing detected. Detection time: " << detectTime.count() << "[s]\n";
         }
         std::cout.flush();
-    }).detach();
+    });
 }
 
-void FrameControler::recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer)
+FrameControler::RecordingResult FrameControler::recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer)
 {
     std::lock_guard<std::mutex> lg(m_recorderMutex);
     if (m_videoRecorder) {
         std::cout << "Continue recording, frame:" << frameNr << "\n";
         m_stopRecordingTime = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        return ContinuePrevVideo;
+    }
+
+    RecordingDataType rdt;
+    std::memset(&rdt, 0, sizeof (rdt));
+    rdt.useVideo = true;
+    switch (m_frameDescr.components) {
+        case 1: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY8; break;
+        case 2: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY16_LE; break;
+        case 3: rdt.videoFormat = GST_VIDEO_FORMAT_RGB; break;
+        case 4: rdt.videoFormat = GST_VIDEO_FORMAT_RGBA; break;
+        default: throw std::runtime_error("Invalid components!");
+    }
+    rdt.videoW = m_frameDescr.width;
+    rdt.videoH = m_frameDescr.height;
+    rdt.videoFpsN = static_cast<uint32_t>(m_cameraFps);
+    rdt.videoFpsD = 1;
+    m_videoRecorder = std::unique_ptr<VideoRecorder>(new VideoRecorder(filename, rdt));
+
+    if (m_cyclicBuffer[frameInBuffer].nr == frameNr) {
+        uint32_t findFirst = frameInBuffer;
+        for (uint32_t i = 1; i < m_cyclicBuffer.size() - 1; ++i) {
+            uint32_t prevFrame = (frameInBuffer - i)%m_cyclicBuffer.size();
+            if (m_cyclicBuffer[prevFrame].nr != frameNr - i) {
+                findFirst = (prevFrame + 1)%m_cyclicBuffer.size();
+                break;
+            }
+        }
+        std::cout << "Current: " << frameInBuffer << " first: " << findFirst << "\n";
+        do
+        {
+            m_videoRecorder->addFrame(m_cyclicBuffer[findFirst].data);
+            ++findFirst;
+        }
+        while (m_cyclicBuffer[(findFirst-1)%m_cyclicBuffer.size()].nr + 1 == m_cyclicBuffer[findFirst].nr);
     }
     else {
-        RecordingDataType rdt;
-        std::memset(&rdt, 0, sizeof (rdt));
-        rdt.useVideo = true;
-        switch (m_frameDescr.components) {
-            case 1: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY8; break;
-            case 2: rdt.videoFormat = GST_VIDEO_FORMAT_GRAY16_LE; break;
-            case 3: rdt.videoFormat = GST_VIDEO_FORMAT_RGB; break;
-            case 4: rdt.videoFormat = GST_VIDEO_FORMAT_RGBA; break;
-            default: throw std::runtime_error("Invalid components!");
-        }
-        rdt.videoW = m_frameDescr.width;
-        rdt.videoH = m_frameDescr.height;
-        rdt.videoFpsN = static_cast<uint32_t>(m_cameraFps);
-        rdt.videoFpsD = 1;
-        m_videoRecorder = std::unique_ptr<VideoRecorder>(new VideoRecorder(filename, rdt));
-
-        if (m_cyclicBuffer[frameInBuffer].nr == frameNr) {
-            uint32_t findFirst = frameInBuffer;
-            for (uint32_t i = 1; i < m_cyclicBuffer.size() - 1; ++i) {
-                uint32_t prevFrame = (frameInBuffer - i)%m_cyclicBuffer.size();
-                if (m_cyclicBuffer[prevFrame].nr != frameNr - i) {
-                    findFirst = (prevFrame + 1)%m_cyclicBuffer.size();
-                    break;
-                }
-            }
-            std::cout << "Current: " << frameInBuffer << " first: " << findFirst << "\n";
-            do
-            {
-                m_videoRecorder->addFrame(m_cyclicBuffer[findFirst].data);
-                ++findFirst;
-            }
-            while (m_cyclicBuffer[(findFirst-1)%m_cyclicBuffer.size()].nr + 1 == m_cyclicBuffer[findFirst].nr);
-        }
-        else {
-            std::cout << "Unsynchronized! Please set longer cyclic buffer!\n";
-            auto detectedinImg = m_detector->getInImg();
-            m_videoRecorder->addFrame(detectedinImg.data);
-        }
-        m_stopRecordingTime = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        std::cout << "Unsynchronized! Please set longer cyclic buffer!\n";
+        auto detectedinImg = m_detector->getInImg();
+        m_videoRecorder->addFrame(detectedinImg.frame.data);
     }
+    m_stopRecordingTime = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    return StartedNewVideo;
 }
 
 void FrameControler::feedRecorder(const Frame& frame)
@@ -232,24 +261,35 @@ void FrameControler::feedRecorder(const Frame& frame)
             //std::string nextFrameAfterFinishPath = filePath + ".png";
             //PngTools::writePngFile(nextFrameAfterFinishPath.c_str(), m_width, m_height, m_components, frame.data.data());
 
+            std::lock_guard<std::mutex> lg(m_saveVideoThreadsMtx);
             std::thread t([this](std::unique_ptr<VideoRecorder> videoRecorder) {
                 videoRecorder->waitForFinish();
                 std::cout << "Finished recording: " << videoRecorder->recordingFilePath() << "\n";
                 notifyAboutVideoReady(videoRecorder->recordingFilePath());
+
+                std::thread::id thisId = std::this_thread::get_id();
+                std::lock_guard<std::mutex> lg(m_saveVideoThreadsMtx);
+                auto it = std::find_if(m_saveVideoThreads.begin(), m_saveVideoThreads.end(), [thisId](const std::thread& t) { return t.get_id() == thisId; });
+                if (it != m_saveVideoThreads.end()) {
+                    it->detach(); // I am sure parent will be waiting on mutex in destructor if it will have to
+                    m_saveVideoThreads.erase(it);
+                }
+
             }, std::move(m_videoRecorder));
-            t.detach();
+
+            m_saveVideoThreads.push_back(std::move(t)); // I am sure thread firstly will be added here
+                                                        // because I opened mutex befor I created it.
         }
     }
 }
 
-void FrameControler::notifyAboutDetection(const std::string &detectionInfo)
+void FrameControler::notifyAboutDetection(const std::string &detectionInfo, const Frame& f, const FrameDescr& fd)
 {
     const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
     for (const auto& tuple : m_detectListener) {
         void* ctx = std::get<0>(tuple);
         OnDetect func = std::get<1>(tuple);
-        //TODO reorganize Detector to take Frame instead of Image
-        //func(, , detectionInfo, ctx);
+        func(f, fd, detectionInfo, ctx);
     }
 }
 
@@ -291,6 +331,7 @@ bool FrameControler::isFrameChanged(const Frame& f1, const Frame& f2) const
     const uint32_t COMPONENT_THRESHOLD = 15;
     uint32_t componentDiff = 0;
 
+    // TO_DO make it available from config
     const uint32_t TIME_POS_X1 = 368;
     const uint32_t TIME_POS_X2 = 452;
     const uint32_t TIME_POS_Y1 = 21;

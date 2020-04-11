@@ -4,6 +4,7 @@
 #include <vector>
 #include <set>
 #include <unordered_map>
+#include "Frame.h"
 
 struct network;
 
@@ -24,10 +25,8 @@ class Detector
 {
 public:
     struct Image {
-        std::vector<uint8_t> data;
-        uint32_t w;
-        uint32_t h;
-        uint32_t c;
+        Frame frame;
+        FrameDescr descr;
     };
 
     Detector(const std::string& netConfigFilePath,
@@ -44,7 +43,7 @@ public:
     /// \param components - image component of pixel, one component equal one byte, e.g. 1 - R, 2 - RG, 3 - RGB, 4 - RGBA
     ///                     darknet expects RGB so if input is different then last channel is copied or removed
     ///
-    void setInput(const uint8_t* data, uint32_t width, uint32_t height, uint32_t components);
+    void setInput(const Frame& frame, const FrameDescr& descr);
 
     ///
     /// \return true - if find something, false - if find nothing

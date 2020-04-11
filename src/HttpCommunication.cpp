@@ -199,8 +199,8 @@ HttpCommunication::~HttpCommunication()
 
 HttpCommunication::Response HttpCommunication::get()
 {
-    std::cout << "--------------------------------------------------------------------------GET\n";
-    std::cout.flush();
+    //std::cout << "--------------------------------------------------------------------------GET\n";
+    //std::cout.flush();
 
     if (!m_easyhandle) {
         static const std::string msg("Easy-handle wasn't initialized! Get can't be berformed!");
@@ -222,8 +222,8 @@ HttpCommunication::Response HttpCommunication::post(const std::string& address,
                                                     const std::string& data,
                                                     const Mimes &mimes)
 {
-    std::cout << "--------------------------------------------------------------------------POST\n";
-    std::cout.flush();
+    //std::cout << "--------------------------------------------------------------------------POST\n";
+    //std::cout.flush();
 
     if (!m_easyhandle) {
         static const std::string msg("Easy-handle wasn't initialized! Post can't be berformed!");
@@ -246,7 +246,7 @@ HttpCommunication::Response HttpCommunication::post(const std::string& address,
         SET_OPT_HTTP_COM(CURLOPT_POSTFIELDS, static_cast<const char*>(nullptr));
     }
 
-    SET_OPT_HTTP_COM(CURLOPT_VERBOSE, 1L);
+    //SET_OPT_HTTP_COM(CURLOPT_VERBOSE, 1L);
 
     CurlList headerObj;
     if (!headers.empty()) {
@@ -269,8 +269,8 @@ HttpCommunication::Response HttpCommunication::post(const std::string& address,
 
 HttpCommunication::Response HttpCommunication::put()
 {
-    std::cout << "--------------------------------------------------------------------------PUT\n";
-    std::cout.flush();
+    //std::cout << "--------------------------------------------------------------------------PUT\n";
+    //std::cout.flush();
 
     if (!m_easyhandle) {
         static const std::string msg("Easy-handle wasn't initialized! Post can't be berformed!");

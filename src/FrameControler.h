@@ -7,6 +7,8 @@
 #include <memory>
 #include <mutex>
 #include <functional>
+#include <thread>
+#include <list>
 
 #include "Detector.h"
 #include "Frame.h"
@@ -45,11 +47,16 @@ public:
     void subscribeOnDie(OnDie notifyFunc, void* ctx);
     void unsubscribeOnDie(OnDie notifyFunc, void* ctx);
 private:
+    enum RecordingResult {
+        ContinuePrevVideo,
+        StartedNewVideo,
+    };
+
     bool isFrameChanged(const Frame& f1, const Frame& f2) const;
     void runDetection(const Frame& frame);
-    void recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer);
+    RecordingResult recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer);
     void feedRecorder(const Frame& frame);
-    void notifyAboutDetection(const std::string& detectionInfo);
+    void notifyAboutDetection(const std::string& detectionInfo, const Frame &f, const FrameDescr &fd);
     void notifyAboutVideoReady(const std::string& videoFilePath);
     void notifyAboutNewFrame();
 
@@ -64,6 +71,7 @@ private:
 
     std::mutex m_detectionMutex;
     std::shared_ptr<Detector> m_detector;
+    std::thread m_detectorFrame;
 
     std::mutex m_recorderMutex;
     std::chrono::steady_clock::time_point m_stopRecordingTime;
@@ -77,4 +85,7 @@ private:
     std::vector<std::tuple<void*, OnDetect>> m_detectListener;
     std::vector<std::tuple<void*, OnVideoReady>> m_videoReadyListener;
     std::vector<std::tuple<void*, OnDie>> m_dieListener;
+
+    std::mutex m_saveVideoThreadsMtx;
+    std::list<std::thread> m_saveVideoThreads;
 };
