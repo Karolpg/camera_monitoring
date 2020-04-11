@@ -32,7 +32,7 @@ public:
             if (mime.fileType.has_value()) curl_mime_type    (part, mime.fileType.value().c_str());
             if (mime.encoder.has_value() ) curl_mime_encoder (part, mime.encoder.value().c_str() );
 
-            if (mime.data.has_value())     curl_mime_data    (part, mime.data.value().data(), mime.data.value().size());
+            if (mime.data.has_value())     curl_mime_data    (part, mime.data.value().data, mime.data.value().size);
             //if (mime.data_cb.has_value()) curl_mime_data_cb(part, (curl_off_t) datasize, myreadfunc, NULL, NULL, arg);  // TODO :)
         }
     }

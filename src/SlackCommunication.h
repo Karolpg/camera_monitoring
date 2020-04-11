@@ -30,6 +30,7 @@ public:
     SendAnswer sendMessage(const std::string& channelName, const std::string& text);
     bool sendWelcomMessage(const std::string& channelName);
     SendAnswer sendFile(const Channels& channelNames, const std::string& filepath, SlackFileType fileType = SlackFileType::autoType);
+    SendAnswer sendFile(const Channels& channelNames, const char* data, size_t size, const std::string& filename, SlackFileType fileType);
     SendAnswer sendFile(const Channels& channelNames, const std::vector<char>& data, const std::string& filename, SlackFileType fileType);
 
 private:

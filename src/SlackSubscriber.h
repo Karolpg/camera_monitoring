@@ -62,6 +62,7 @@ private:
     FrameControler* m_frameControler = nullptr;
     std::unique_ptr<SlackCommunication> m_slack;
     SlackCommunication::Channels m_notifyChannels;
+    std::vector<char> m_memoryPngFile;
 
     std::thread m_thread;
     std::mutex m_queueMtx;

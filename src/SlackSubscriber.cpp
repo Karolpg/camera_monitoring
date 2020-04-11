@@ -160,16 +160,12 @@ void SlackSubscriber::sendFrame()
 
 
     uint32_t rawSize = frameData->fd.width * frameData->fd.height * frameData->fd.components;
-    uint32_t abc = PngTools::PNG_HEADER_SIZE;
-    std::vector<char> pngFile(abc + rawSize, '\0');
-    FILE* fd = fmemopen(pngFile.data(), pngFile.size(), "wb");
+    m_memoryPngFile.resize(PngTools::PNG_HEADER_SIZE + rawSize, '\0');
+    FILE* fd = fmemopen(m_memoryPngFile.data(), m_memoryPngFile.size(), "wb");
     if (PngTools::writePngFile(fd, frameData->fd.width, frameData->fd.height, frameData->fd.components, frameData->f.data.data())) {
         fclose(fd);
-        std::cout << "abc " << abc << " aaaaaa  " << pngFile.size() << " next F_tell: " << ftell(fd) << "\n";
-        std::cout.flush();
-
-        pngFile.resize(static_cast<uint32_t>(ftell(fd)));
-        m_slack->sendFile(m_notifyChannels, pngFile, frameName, SlackFileType::png);
+        size_t fileSize = static_cast<size_t>(ftell(fd));
+        m_slack->sendFile(m_notifyChannels, m_memoryPngFile.data(), fileSize, frameName, SlackFileType::png);
     }
     else  {
         std::cerr << "Can't prepare png in memory!\n";
@@ -194,7 +190,22 @@ void SlackSubscriber::sendDetectionData()
     }
 
     m_slack->sendMessage(m_notifyChannels[0], detectionData->detectionInfo);
-    // TODO send frame
+
+    const auto& frameData = detectionData->frameData;
+
+    uint32_t rawSize = frameData.fd.width * frameData.fd.height * frameData.fd.components;
+    m_memoryPngFile.resize(PngTools::PNG_HEADER_SIZE + rawSize, '\0');
+    FILE* fd = fmemopen(m_memoryPngFile.data(), m_memoryPngFile.size(), "wb");
+    if (PngTools::writePngFile(fd, frameData.fd.width, frameData.fd.height, frameData.fd.components, frameData.f.data.data())) {
+        fclose(fd);
+        size_t fileSize = static_cast<size_t>(ftell(fd));
+        std::string frameName = std::string(u8"frame_") + std::to_string(frameData.f.nr) + u8".png";
+        m_slack->sendFile(m_notifyChannels, m_memoryPngFile.data(), fileSize, frameName, SlackFileType::png);
+    }
+    else  {
+        std::cerr << "Can't prepare png in memory!\n";
+        fclose(fd);
+    }
 }
 
 void SlackSubscriber::sendVideo()
