@@ -33,6 +33,5 @@ int main(int argc, char *argv[])
     slackSub.subscribe(videoGrabber.getFrameController());
 
     videoGrabber.hangOnPlay();
-
     return 0;
 }

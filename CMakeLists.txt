@@ -26,6 +26,7 @@ set(SOURCES src/main.cpp
             src/SlackFileTypes.h
             src/SlackSubscriber.cpp
             src/SlackSubscriber.h
+            src/Timer.h
             src/VideoGrabber.cpp
             src/VideoGrabber.h
             src/VideoRecorder.cpp

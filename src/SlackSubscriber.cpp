@@ -28,10 +28,21 @@ SlackSubscriber::SlackSubscriber(const Config &cfg)
 {
     m_notifyChannels.push_back(cfg.getValue("slackReportChannel", "general"));
     m_thread = std::thread(threadLoop, std::ref(*this));
+
+    int sendEvery = cfg.getValue("sendFrameByEverySeconds", -1);
+
+    if (sendEvery > 0) {
+        m_periodicFrameSender.runEvery([this]() {
+            if (m_frameControler) {
+                m_frameControler->subscribeOnCurrentFrame(onCurrentFrameReady, this);
+            }
+        }, std::chrono::seconds(sendEvery));
+    }
 }
 
 SlackSubscriber::~SlackSubscriber()
 {
+    m_periodicFrameSender.stop();
     m_runThread = false;
     m_queueCv.notify_all();
     m_thread.join();
@@ -112,6 +123,7 @@ void SlackSubscriber::onVideoReady(const std::string &filePath, void *ctx)
 void SlackSubscriber::handleDieingFrameControler(void *ctx)
 {
     SlackSubscriber& obj = *reinterpret_cast<SlackSubscriber*>(ctx);
+    obj.m_periodicFrameSender.stop();
     obj.unsubscribe();
 }
 

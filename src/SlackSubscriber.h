@@ -3,6 +3,7 @@
 #include "SlackCommunication.h"
 #include "FrameController.h"
 #include "Config.h"
+#include "Timer.h"
 
 #include <thread>
 #include <mutex>
@@ -69,4 +70,6 @@ private:
     std::condition_variable m_queueCv;
     std::queue<Task> m_queueTask;
     volatile bool m_runThread = true;
+
+    Timer<std::function<void()>> m_periodicFrameSender;
 };
