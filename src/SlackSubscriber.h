@@ -1,7 +1,7 @@
 #pragma once
 
 #include "SlackCommunication.h"
-#include "FrameControler.h"
+#include "FrameController.h"
 #include "Config.h"
 
 #include <thread>

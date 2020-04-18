@@ -1,4 +1,4 @@
-#include "FrameControler.h"
+#include "FrameController.h"
 #include "PngTools.h"
 #include "VideoRecorder.h"
 #include "DirUtils.h"

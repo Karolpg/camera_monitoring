@@ -2,7 +2,7 @@
 
 #include <string>
 #include <cstdint>
-#include "FrameControler.h"
+#include "FrameController.h"
 #include "Config.h"
 
 typedef struct _GstElement GstElement;

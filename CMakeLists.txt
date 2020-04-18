@@ -12,8 +12,8 @@ set(SOURCES src/main.cpp
             src/DirUtils.cpp
             src/DirUtils.h
             src/Frame.h
-            src/FrameControler.cpp
-            src/FrameControler.h
+            src/FrameController.cpp
+            src/FrameController.h
             src/HttpCommunication.cpp
             src/HttpCommunication.h
             src/Letters.cpp
