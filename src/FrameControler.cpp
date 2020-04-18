@@ -1,6 +1,7 @@
 #include "FrameControler.h"
 #include "PngTools.h"
 #include "VideoRecorder.h"
+#include "DirUtils.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -13,7 +14,6 @@
 #include <stdexcept>
 #include <ctime>
 #include <sstream>
-
 
 static bool storeFrame(const Frame& frame, uint32_t width, uint32_t height, uint32_t components)
 {
@@ -35,12 +35,21 @@ static std::string currentDateTime() {
     return buf;
 }
 
-FrameControler::FrameControler()
+FrameController::FrameController(const Config& cfg)
 {
+    m_videoDirectory = DirUtils::cleanPath(cfg.getValue("videoStorePath", "/tmp"));
 
+    if (!DirUtils::makePath(m_videoDirectory)) {
+        std::cerr << "Can't create path to dir: " << m_videoDirectory << "\n";
+        m_videoDirectory = "/tmp";
+    }
+    if (!m_videoDirectory.empty() && m_videoDirectory.back() != '/') {
+        m_videoDirectory += '/';
+    }
+    std::cout << "Storing video in: " << m_videoDirectory << "\n";
 }
 
-FrameControler::~FrameControler()
+FrameController::~FrameController()
 {
     for (const auto& tuple : m_dieListener) {
         void* ctx = std::get<0>(tuple);
@@ -68,7 +77,7 @@ FrameControler::~FrameControler()
 }
 
 
-void FrameControler::setBufferParams(double duration, double cameraFps, uint32_t width, uint32_t height, uint32_t components)
+void FrameController::setBufferParams(double duration, double cameraFps, uint32_t width, uint32_t height, uint32_t components)
 {
     assert(width);
     assert(height);
@@ -92,7 +101,7 @@ void FrameControler::setBufferParams(double duration, double cameraFps, uint32_t
     }
 }
 
-void FrameControler::addFrame(const uint8_t* data)
+void FrameController::addFrame(const uint8_t* data)
 {
     assert(data);
     //uint64_t prevFrameNr = m_frameCtr;
@@ -112,7 +121,7 @@ void FrameControler::addFrame(const uint8_t* data)
     runDetection(frame);
 }
 
-void FrameControler::runDetection(const Frame &frame)
+void FrameController::runDetection(const Frame &frame)
 {
     //if (m_detector && isFrameChanged(m_cyclicBuffer[frameInBuffer], m_cyclicBuffer[prevFrameInBuffer])) {
     if (!m_detector) {
@@ -161,7 +170,7 @@ void FrameControler::runDetection(const Frame &frame)
                 foundObjects += l;
                 foundObjects += '_';
             }
-            std::string filePath = "/tmp/detection_";
+            std::string filePath = m_videoDirectory + "detection_";
             filePath += currentDateTime();
             filePath += '_';
             filePath += foundObjects;
@@ -194,7 +203,7 @@ void FrameControler::runDetection(const Frame &frame)
     });
 }
 
-FrameControler::RecordingResult FrameControler::recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer)
+FrameController::RecordingResult FrameController::recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer)
 {
     std::lock_guard<std::mutex> lg(m_recorderMutex);
     if (m_videoRecorder) {
@@ -245,7 +254,7 @@ FrameControler::RecordingResult FrameControler::recording(const std::string& fil
     return StartedNewVideo;
 }
 
-void FrameControler::feedRecorder(const Frame& frame)
+void FrameController::feedRecorder(const Frame& frame)
 {
     std::lock_guard<std::mutex> lg(m_recorderMutex);
     if (std::chrono::steady_clock::now() < m_stopRecordingTime) {
@@ -283,7 +292,7 @@ void FrameControler::feedRecorder(const Frame& frame)
     }
 }
 
-void FrameControler::notifyAboutDetection(const std::string &detectionInfo, const Frame& f, const FrameDescr& fd)
+void FrameController::notifyAboutDetection(const std::string &detectionInfo, const Frame& f, const FrameDescr& fd)
 {
     const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
     for (const auto& tuple : m_detectListener) {
@@ -293,7 +302,7 @@ void FrameControler::notifyAboutDetection(const std::string &detectionInfo, cons
     }
 }
 
-void FrameControler::notifyAboutVideoReady(const std::string& videoFilePath)
+void FrameController::notifyAboutVideoReady(const std::string& videoFilePath)
 {
     const std::lock_guard<std::mutex> lock(m_listenerVideoReadyMutex);
     for (const auto& tuple : m_videoReadyListener) {
@@ -303,7 +312,7 @@ void FrameControler::notifyAboutVideoReady(const std::string& videoFilePath)
     }
 }
 
-void FrameControler::notifyAboutNewFrame()
+void FrameController::notifyAboutNewFrame()
 {
     const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
 
@@ -325,7 +334,7 @@ void FrameControler::notifyAboutNewFrame()
     }
 }
 
-bool FrameControler::isFrameChanged(const Frame& f1, const Frame& f2) const
+bool FrameController::isFrameChanged(const Frame& f1, const Frame& f2) const
 {
     const uint32_t PIXEL_COUNT_THRESHOLD = static_cast<uint32_t>(m_frameDescr.width*m_frameDescr.height*0.01);
     const uint32_t COMPONENT_THRESHOLD = 15;
@@ -378,7 +387,7 @@ void* functionAddress(std::function<T(U...)> f) {
 } // namespace
 
 
-void FrameControler::subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void *ctx, bool notifyOnce)
+void FrameController::subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void *ctx, bool notifyOnce)
 {
     if (notifyOnce) {
         const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
@@ -390,7 +399,7 @@ void FrameControler::subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, voi
     }
 }
 
-void FrameControler::unsubscribeOnCurrentFrame(FrameControler::OnCurrentFrameReady notifyFunc, void *ctx)
+void FrameController::unsubscribeOnCurrentFrame(FrameController::OnCurrentFrameReady notifyFunc, void *ctx)
 {
     const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
     for (auto it = m_currentFrameListener.begin(); it != m_currentFrameListener.end();) {
@@ -403,13 +412,13 @@ void FrameControler::unsubscribeOnCurrentFrame(FrameControler::OnCurrentFrameRea
     }
 }
 
-void FrameControler::subscribeOnDetection(OnDetect notifyFunc, void *ctx)
+void FrameController::subscribeOnDetection(OnDetect notifyFunc, void *ctx)
 {
     const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
     m_detectListener.push_back(std::make_tuple(ctx, notifyFunc));
 }
 
-void FrameControler::unsubscribeOnDetection(FrameControler::OnDetect notifyFunc, void *ctx)
+void FrameController::unsubscribeOnDetection(FrameController::OnDetect notifyFunc, void *ctx)
 {
     const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
     for (auto it = m_detectListener.begin(); it != m_detectListener.end();) {
@@ -422,13 +431,13 @@ void FrameControler::unsubscribeOnDetection(FrameControler::OnDetect notifyFunc,
     }
 }
 
-void FrameControler::subscribeOnDetectionVideoReady(OnVideoReady notifyFunc, void *ctx)
+void FrameController::subscribeOnDetectionVideoReady(OnVideoReady notifyFunc, void *ctx)
 {
     const std::lock_guard<std::mutex> lock(m_listenerVideoReadyMutex);
     m_videoReadyListener.push_back(std::make_tuple(ctx, notifyFunc));
 }
 
-void FrameControler::unsubscribeOnDetectionVideoReady(FrameControler::OnVideoReady notifyFunc, void *ctx)
+void FrameController::unsubscribeOnDetectionVideoReady(FrameController::OnVideoReady notifyFunc, void *ctx)
 {
     const std::lock_guard<std::mutex> lock(m_listenerVideoReadyMutex);
     for (auto it = m_videoReadyListener.begin(); it != m_videoReadyListener.end();) {
@@ -441,12 +450,12 @@ void FrameControler::unsubscribeOnDetectionVideoReady(FrameControler::OnVideoRea
     }
 }
 
-void FrameControler::subscribeOnDie(FrameControler::OnDie notifyFunc, void *ctx)
+void FrameController::subscribeOnDie(FrameController::OnDie notifyFunc, void *ctx)
 {
     m_dieListener.push_back(std::make_tuple(ctx, notifyFunc));
 }
 
-void FrameControler::unsubscribeOnDie(FrameControler::OnDie notifyFunc, void *ctx)
+void FrameController::unsubscribeOnDie(FrameController::OnDie notifyFunc, void *ctx)
 {
     for (auto it = m_dieListener.begin(); it != m_dieListener.end();) {
         if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {

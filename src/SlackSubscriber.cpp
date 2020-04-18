@@ -38,7 +38,7 @@ SlackSubscriber::~SlackSubscriber()
     unsubscribe();
 }
 
-void SlackSubscriber::subscribe(FrameControler &frameControler)
+void SlackSubscriber::subscribe(FrameController &frameControler)
 {
     if (m_frameControler) {
         std::cout << "Already subscribed!\n";

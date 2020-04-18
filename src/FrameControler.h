@@ -12,10 +12,11 @@
 
 #include "Detector.h"
 #include "Frame.h"
+#include "Config.h"
 
 class VideoRecorder;
 
-class FrameControler
+class FrameController
 {
 public:
     using OnDie = std::function<void(void *ctx)>;
@@ -23,8 +24,8 @@ public:
     using OnDetect = std::function<void(const Frame& f, const FrameDescr& fd, const std::string& detectionInfo, void* ctx)>;
     using OnVideoReady = std::function<void(const std::string& filePath, void* ctx)>;
 
-    FrameControler();
-    ~FrameControler();
+    FrameController(const Config& cfg);
+    ~FrameController();
 
     void setBufferParams(double duration, double cameraFps, uint32_t width, uint32_t height, uint32_t components);
     void setDetector(const std::shared_ptr<Detector>& detector) { m_detector = detector; }
@@ -88,4 +89,6 @@ private:
 
     std::mutex m_saveVideoThreadsMtx;
     std::list<std::thread> m_saveVideoThreads;
+
+    std::string m_videoDirectory;
 };

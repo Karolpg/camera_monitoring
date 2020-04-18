@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include "FrameControler.h"
+#include "Config.h"
 
 typedef struct _GstElement GstElement;
 typedef struct _GstBus GstBus;
@@ -15,14 +16,19 @@ struct ComponentType
 
 class VideoGrabber {
   public:
-    VideoGrabber(const std::string& videoUri);
+    ///
+    /// \brief VideoGrabber - allow to connect to camera
+    ///                       it takes frame of video and provide it to FrameController
+    /// \param cfg - config should contains key: "cameraUrl"
+    ///
+    VideoGrabber(const Config& cfg);
     ~VideoGrabber();
 
     int onNewVideoSample(GstElement *sink);
 
     void hangOnPlay();
 
-    FrameControler& getFrameControler() { return m_frameControler; }
+    FrameController& getFrameController() { return m_frameController; }
   private:
 
     std::string m_uri;
@@ -32,5 +38,5 @@ class VideoGrabber {
 
     ComponentType m_componentOut = {3, "RGB"};
 
-    FrameControler m_frameControler;
+    FrameController m_frameController;
 };

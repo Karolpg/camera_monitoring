@@ -26,11 +26,11 @@ int main(int argc, char *argv[])
                              cfg.getValue("validLabelsFilePath"),
                              cfg.getValue("probabilityThreshold", 0.1f)));
 
-    VideoGrabber videoGrabber(cfg.getValue("cameraUrl"));
-    videoGrabber.getFrameControler().setDetector(yoloDetector);
+    VideoGrabber videoGrabber(cfg);
+    videoGrabber.getFrameController().setDetector(yoloDetector);
 
     SlackSubscriber slackSub(cfg);
-    slackSub.subscribe(videoGrabber.getFrameControler());
+    slackSub.subscribe(videoGrabber.getFrameController());
 
     videoGrabber.hangOnPlay();
 

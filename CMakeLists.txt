@@ -9,6 +9,8 @@ set(SOURCES src/main.cpp
             src/Config.h
             src/Detector.cpp
             src/Detector.h
+            src/DirUtils.cpp
+            src/DirUtils.h
             src/Frame.h
             src/FrameControler.cpp
             src/FrameControler.h

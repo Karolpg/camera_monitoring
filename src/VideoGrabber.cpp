@@ -11,7 +11,9 @@ static GstFlowReturn onNewVideoSample(GstElement *sink, void *ctx)
 }
 
 
-VideoGrabber::VideoGrabber(const std::string& videoUri) : m_uri(videoUri)
+VideoGrabber::VideoGrabber(const Config &cfg)
+    : m_uri(cfg.getValue("cameraUrl"))
+    , m_frameController(cfg)
 {
     // Initialize GStreamer
     gst_init (nullptr, nullptr);
@@ -131,18 +133,18 @@ int VideoGrabber::onNewVideoSample(GstElement *sink)
         if (sampleBuffer) {
             if(width * height > 0) {
 
-                if (width != m_frameControler.getWidth()
-                        || height != m_frameControler.getHeight()
-                        || m_componentOut.componentCount != m_frameControler.getComponents()) {
+                if (width != m_frameController.getWidth()
+                        || height != m_frameController.getHeight()
+                        || m_componentOut.componentCount != m_frameController.getComponents()) {
                     printf("Dim %dx%d Format:%s Fps:%lf\n", width, height, m_componentOut.componentStr.c_str(), fps);
                     double timeLength = 3.0; // [s]
-                    m_frameControler.setBufferParams(timeLength, fps, width, height, m_componentOut.componentCount);
+                    m_frameController.setBufferParams(timeLength, fps, width, height, m_componentOut.componentCount);
                 }
 
                 GstMapInfo map;
                 if (gst_buffer_map(sampleBuffer, &map, GST_MAP_READ)) {
 
-                    m_frameControler.addFrame(static_cast<const uint8_t*>(map.data));
+                    m_frameController.addFrame(static_cast<const uint8_t*>(map.data));
 
                     gst_buffer_unmap(sampleBuffer, &map);
                 }

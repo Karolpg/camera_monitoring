@@ -15,7 +15,7 @@ public:
     SlackSubscriber(const Config& cfg);
     ~SlackSubscriber();
 
-    void subscribe(FrameControler& frameControler);
+    void subscribe(FrameController& frameControler);
     void unsubscribe();
 
 private:
@@ -59,7 +59,7 @@ private:
 
 private:
     const Config &m_cfg;
-    FrameControler* m_frameControler = nullptr;
+    FrameController* m_frameControler = nullptr;
     std::unique_ptr<SlackCommunication> m_slack;
     SlackCommunication::Channels m_notifyChannels;
     std::vector<char> m_memoryPngFile;
