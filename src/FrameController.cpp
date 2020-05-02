@@ -47,6 +47,8 @@ FrameController::FrameController(const Config& cfg)
         m_videoDirectory += '/';
     }
     std::cout << "Storing video in: " << m_videoDirectory << "\n";
+
+    m_detectorThread = std::thread([this]{ detectionThreadFunc(); });
 }
 
 FrameController::~FrameController()
@@ -56,10 +58,10 @@ FrameController::~FrameController()
         OnDie func = std::get<1>(tuple);
         func(ctx);
     }
-    if (m_detectorFrame.joinable()) {
-        m_detectorFrame.join(); // wait if detector is running
-    }
 
+    m_detectorThreadIsRunning = false;
+    m_waitForDetectionTask.notify_all();
+    m_detectorThread.join();
 
     for (;;) {
         std::thread t;
@@ -101,6 +103,12 @@ void FrameController::setBufferParams(double duration, double cameraFps, uint32_
     }
 }
 
+void FrameController::setDetector(const std::shared_ptr<Detector> &detector)
+{
+    std::lock_guard<std::mutex> lg(m_detectionData.detectionMutex);
+    m_detectionData.detector = detector;
+}
+
 void FrameController::addFrame(const uint8_t* data)
 {
     assert(data);
@@ -123,84 +131,99 @@ void FrameController::addFrame(const uint8_t* data)
 
 void FrameController::runDetection(const Frame &frame)
 {
-    //if (m_detector && isFrameChanged(m_cyclicBuffer[frameInBuffer], m_cyclicBuffer[prevFrameInBuffer])) {
-    if (!m_detector) {
+    //if (!isFrameChanged(m_cyclicBuffer[frameInBuffer], m_cyclicBuffer[prevFrameInBuffer])) {
+    //    return;
+    //}
+
+    if (!m_detectionData.detectionMutex.try_lock()) {
+        // if detector is processing we just skip this frame
         return;
     }
-
-    if (!m_detectionMutex.try_lock()) {
+    if (!m_detectionData.detector) {
+        // there is no detector, but we have to check it under mutex
+        m_detectionData.detectionMutex.unlock();
         return;
     }
     // if detector is not processing, then data is copied into detector cache
-    m_detector->setInput(frame, m_frameDescr);
-    m_detectionMutex.unlock();
+    m_detectionData.frame = frame.nr;
+    m_detectionData.frameInBuffer = frame.bufferIdx;
+    m_detectionData.detector->setInput(frame, m_frameDescr);
+    m_detectionData.jobIsReady = true;
+    m_waitForDetectionTask.notify_one();
+    m_detectionData.detectionMutex.unlock();
+}
 
-    //
-    // we are in one thread and it is safe, but even if not, then detector could be invoked with the same data just few times
-    //
-
-    // start worker thread, we suspect (generally know that) that this calculation is CPU expensive and we have to collect/consume incoming frames from camera.
-    if (m_detectorFrame.joinable()) {
-        m_detectorFrame.join(); // finish if any
-        //TODO do not create new thread, go sleep if there is nothing to do
+void FrameController::detectionThreadFunc()
+{
+    while (m_detectorThreadIsRunning) {
+        {
+            std::unique_lock<std::mutex> ul(m_waitForDetectionTaskMtx);
+            m_waitForDetectionTask.wait(ul, [this] { return m_detectionData.jobIsReady; });
+        }
+        if (!m_detectorThreadIsRunning) {
+            break;
+        }
+        detect();
     }
-    m_detectorFrame = std::thread( [this, frame = frame.nr, frameInBuffer = frame.bufferIdx]
-    {
-        const std::lock_guard<std::mutex> lock(m_detectionMutex);
+}
 
-        std::cout << "Detecting for: " << frame << "(" << frameInBuffer << ")\n";
-        auto start = std::chrono::steady_clock::now();
-        if (m_detector->detect()) {
-            std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
-            std::cout << "Detection time: " << detectTime.count() << "[s]\n";
+void FrameController::detect()
+{
+    const std::lock_guard<std::mutex> lock(m_detectionData.detectionMutex);
+    m_detectionData.jobIsReady = false;
 
-            const auto& results = m_detector->lastResults();
-            std::stringstream ss;
-            std::set<std::string> labels;
-            for (const DetectionResult& dr : results) {
-                labels.insert(dr.label);
-                ss << "Detected: [" << dr.classId << "] " << dr.label << " " << dr.probablity
-                   << " (" << dr.box.x << "x" << dr.box.y << ", " << dr.box.w << "x" << dr.box.h <<  "\n";
-            }
-            std::string info = ss.str();
-            std::cout << info;
+    std::cout << "Detecting for: " << m_detectionData.frame << "(" << m_detectionData.frameInBuffer << ")\n";
+    auto start = std::chrono::steady_clock::now();
+    if (m_detectionData.detector->detect()) {
+        std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
+        std::cout << "Detection time: " << detectTime.count() << "[s]\n";
 
-            std::string foundObjects;
-            for(auto l : labels) {
-                foundObjects += l;
-                foundObjects += '_';
-            }
-            std::string filePath = m_videoDirectory + "detection_";
-            filePath += currentDateTime();
-            filePath += '_';
-            filePath += foundObjects;
-            std::string detectedFrameFilePath = filePath + ".png";
-            std::string videoFilePath = filePath + ".mpeg";
+        const auto& results = m_detectionData.detector->lastResults();
+        std::stringstream ss;
+        std::set<std::string> labels;
+        for (const DetectionResult& dr : results) {
+            labels.insert(dr.label);
+            ss << "Detected: [" << dr.classId << "] " << dr.label << " " << dr.probablity
+               << " (" << dr.box.x << "x" << dr.box.y << ", " << dr.box.w << "x" << dr.box.h <<  "\n";
+        }
+        std::string info = ss.str();
+        std::cout << info;
 
-            //auto detectedinImg = m_detector->getInImg();
-            //PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + "_.png").c_str(),
-            //                       detectedinImg.w, detectedinImg.h, detectedinImg.c, detectedinImg.data.data());
-            //
-            auto detectedOutImg = m_detector->getLabeledInImg();
-            PngTools::writePngFile(detectedFrameFilePath.c_str(),
-                                   detectedOutImg.descr.width, detectedOutImg.descr.height, detectedOutImg.descr.components, detectedOutImg.frame.data.data());
+        std::string foundObjects;
+        for(auto l : labels) {
+            foundObjects += l;
+            foundObjects += '_';
+        }
+        std::string filePath = m_videoDirectory + "detection_";
+        filePath += currentDateTime();
+        filePath += '_';
+        filePath += foundObjects;
+        std::string detectedFrameFilePath = filePath + ".png";
+        std::string videoFilePath = filePath + ".mpeg";
 
-            auto recordingResult = recording(videoFilePath, frame, frameInBuffer);
+        //auto detectedinImg = m_detector->getInImg();
+        //PngTools::writePngFile((std::string("/tmp/detectionResult") + std::to_string(frameNr) + "_.png").c_str(),
+        //                       detectedinImg.w, detectedinImg.h, detectedinImg.c, detectedinImg.data.data());
+        //
+        auto detectedOutImg = m_detectionData.detector->getLabeledInImg();
+        PngTools::writePngFile(detectedFrameFilePath.c_str(),
+                               detectedOutImg.descr.width, detectedOutImg.descr.height, detectedOutImg.descr.components, detectedOutImg.frame.data.data());
 
-            if (recordingResult == StartedNewVideo) {
-                info += "Detection trigger storing video on: " + videoFilePath;
-            }
-            else {
-                info += "continue previos video";
-            }
-            notifyAboutDetection(info, detectedOutImg.frame, detectedOutImg.descr);
+        auto recordingResult = recording(videoFilePath, m_detectionData.frame, m_detectionData.frameInBuffer);
+
+        if (recordingResult == StartedNewVideo) {
+            info += "Detection trigger storing video on: " + videoFilePath;
         }
         else {
-            std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
-            std::cout << "Nothing detected. Detection time: " << detectTime.count() << "[s]\n";
+            info += "continue previous video";
         }
-        std::cout.flush();
-    });
+        notifyAboutDetection(info, detectedOutImg.frame, detectedOutImg.descr);
+    }
+    else {
+        std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
+        std::cout << "Nothing detected. Detection time: " << detectTime.count() << "[s]\n";
+    }
+    std::cout.flush();
 }
 
 FrameController::RecordingResult FrameController::recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer)
@@ -247,7 +270,7 @@ FrameController::RecordingResult FrameController::recording(const std::string& f
     }
     else {
         std::cout << "Unsynchronized! Please set longer cyclic buffer!\n";
-        auto detectedinImg = m_detector->getInImg();
+        auto detectedinImg = m_detectionData.detector->getInImg();
         m_videoRecorder->addFrame(detectedinImg.frame.data);
     }
     m_stopRecordingTime = std::chrono::steady_clock::now() + std::chrono::seconds(10);

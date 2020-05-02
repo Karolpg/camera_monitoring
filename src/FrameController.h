@@ -8,6 +8,7 @@
 #include <mutex>
 #include <functional>
 #include <thread>
+#include <condition_variable>
 #include <list>
 
 #include "Detector.h"
@@ -28,7 +29,7 @@ public:
     ~FrameController();
 
     void setBufferParams(double duration, double cameraFps, uint32_t width, uint32_t height, uint32_t components);
-    void setDetector(const std::shared_ptr<Detector>& detector) { m_detector = detector; }
+    void setDetector(const std::shared_ptr<Detector>& detector);
 
     void addFrame(const uint8_t* data);
 
@@ -53,8 +54,18 @@ private:
         StartedNewVideo,
     };
 
+    struct DetectionData {
+        std::mutex detectionMutex;
+        uint64_t frame;
+        uint32_t frameInBuffer;
+        bool jobIsReady = false;
+        std::shared_ptr<Detector> detector;
+    };
+
     bool isFrameChanged(const Frame& f1, const Frame& f2) const;
     void runDetection(const Frame& frame);
+    void detect();
+    void detectionThreadFunc();
     RecordingResult recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer);
     void feedRecorder(const Frame& frame);
     void notifyAboutDetection(const std::string& detectionInfo, const Frame &f, const FrameDescr &fd);
@@ -67,12 +78,13 @@ private:
     std::vector<Frame> m_cyclicBuffer;
 
     uint64_t m_frameCtr = 0;
-
     FrameDescr m_frameDescr; // common data for every frame
 
-    std::mutex m_detectionMutex;
-    std::shared_ptr<Detector> m_detector;
-    std::thread m_detectorFrame;
+    DetectionData m_detectionData;
+    volatile bool m_detectorThreadIsRunning = true;
+    std::mutex m_waitForDetectionTaskMtx;
+    std::condition_variable m_waitForDetectionTask;
+    std::thread m_detectorThread;
 
     std::mutex m_recorderMutex;
     std::chrono::steady_clock::time_point m_stopRecordingTime;
