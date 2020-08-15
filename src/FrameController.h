@@ -21,8 +21,8 @@ class FrameController
 {
 public:
     using OnDie = std::function<void(void *ctx)>;
-    using OnCurrentFrameReady = std::function<void(const Frame& f, const FrameDescr& fd, void* ctx)>;
-    using OnDetect = std::function<void(const Frame& f, const FrameDescr& fd, const std::string& detectionInfo, void* ctx)>;
+    using OnCurrentFrameReady = std::function<void(const FrameU8& f, const FrameDescr& fd, void* ctx)>;
+    using OnDetect = std::function<void(const FrameU8& f, const FrameDescr& fd, const std::string& detectionInfo, void* ctx)>;
     using OnVideoReady = std::function<void(const std::string& filePath, void* ctx)>;
 
     FrameController(const Config& cfg);
@@ -62,20 +62,20 @@ private:
         std::shared_ptr<Detector> detector;
     };
 
-    bool isFrameChanged(const Frame& f1, const Frame& f2) const;
-    void runDetection(const Frame& frame);
+    bool isFrameChanged(const FrameU8& f1, const FrameU8& f2) const;
+    void runDetection(const FrameU8& frame);
     void detect();
     void detectionThreadFunc();
     RecordingResult recording(const std::string& filename, uint64_t frameNr, uint32_t frameInBuffer);
-    void feedRecorder(const Frame& frame);
-    void notifyAboutDetection(const std::string& detectionInfo, const Frame &f, const FrameDescr &fd);
+    void feedRecorder(const FrameU8& frame);
+    void notifyAboutDetection(const std::string& detectionInfo, const FrameU8 &f, const FrameDescr &fd);
     void notifyAboutVideoReady(const std::string& videoFilePath);
     void notifyAboutNewFrame();
 
     double m_cameraFps = 0.0;
     double m_frameTime = 0.0;
 
-    std::vector<Frame> m_cyclicBuffer;
+    std::vector<FrameU8> m_cyclicBuffer;
 
     uint64_t m_frameCtr = 0;
     FrameDescr m_frameDescr; // common data for every frame

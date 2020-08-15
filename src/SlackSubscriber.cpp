@@ -75,7 +75,7 @@ void SlackSubscriber::unsubscribe()
     m_frameControler = nullptr;
 }
 
-void SlackSubscriber::onCurrentFrameReady(const Frame &f, const FrameDescr &fd, void *ctx)
+void SlackSubscriber::onCurrentFrameReady(const FrameU8 &f, const FrameDescr &fd, void *ctx)
 {
     SlackSubscriber& obj = *reinterpret_cast<SlackSubscriber*>(ctx);
 
@@ -90,7 +90,7 @@ void SlackSubscriber::onCurrentFrameReady(const Frame &f, const FrameDescr &fd, 
     obj.m_queueCv.notify_one();
 }
 
-void SlackSubscriber::onDetect(const Frame &f, const FrameDescr &fd, const std::string &detectionInfo, void *ctx)
+void SlackSubscriber::onDetect(const FrameU8 &f, const FrameDescr &fd, const std::string &detectionInfo, void *ctx)
 {
     SlackSubscriber& obj = *reinterpret_cast<SlackSubscriber*>(ctx);
 

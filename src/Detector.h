@@ -25,7 +25,7 @@ class Detector
 {
 public:
     struct Image {
-        Frame frame;
+        FrameU8 frame;
         FrameDescr descr;
     };
 
@@ -43,7 +43,7 @@ public:
     /// \param components - image component of pixel, one component equal one byte, e.g. 1 - R, 2 - RG, 3 - RGB, 4 - RGBA
     ///                     darknet expects RGB so if input is different then last channel is copied or removed
     ///
-    void setInput(const Frame& frame, const FrameDescr& descr);
+    void setInput(const FrameU8& frame, const FrameDescr& descr);
 
     ///
     /// \return true - if find something, false - if find nothing

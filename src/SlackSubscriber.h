@@ -28,8 +28,8 @@ private:
     };
 
 private:
-    static void onCurrentFrameReady(const Frame& f, const FrameDescr& fd, void* ctx);
-    static void onDetect(const Frame& f, const FrameDescr& fd, const std::string& detectionInfo, void* ctx);
+    static void onCurrentFrameReady(const FrameU8& f, const FrameDescr& fd, void* ctx);
+    static void onDetect(const FrameU8& f, const FrameDescr& fd, const std::string& detectionInfo, void* ctx);
     static void onVideoReady(const std::string& filePath, void* ctx);
 
     static void handleDieingFrameControler(void* ctx);
@@ -38,7 +38,7 @@ private:
 
 private:
     struct FrameData {
-        Frame f;
+        FrameU8 f;
         FrameDescr fd;
     };
     std::queue<std::unique_ptr<FrameData>> m_currentFrameQueue;

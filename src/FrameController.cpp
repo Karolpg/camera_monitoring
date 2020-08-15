@@ -15,7 +15,7 @@
 #include <ctime>
 #include <sstream>
 
-static bool storeFrame(const Frame& frame, uint32_t width, uint32_t height, uint32_t components)
+static bool storeFrame(const FrameU8& frame, uint32_t width, uint32_t height, uint32_t components)
 {
     static const std::string path("/tmp/");
     std::string fileName = std::to_string(frame.nr);
@@ -97,7 +97,7 @@ void FrameController::setBufferParams(double duration, double cameraFps, uint32_
 
     uint32_t cnt = 0;
     size_t frameSize = m_frameDescr.width*m_frameDescr.height*m_frameDescr.components;
-    for (Frame& frame : m_cyclicBuffer) {
+    for (FrameU8& frame : m_cyclicBuffer) {
         frame.bufferIdx = cnt++;
         frame.data.resize(frameSize);
     }
@@ -117,7 +117,7 @@ void FrameController::addFrame(const uint8_t* data)
 
     uint64_t frameNr = ++m_frameCtr;
     uint32_t frameInBuffer = static_cast<uint32_t>(frameNr % m_cyclicBuffer.size());
-    Frame& frame = m_cyclicBuffer[frameInBuffer];
+    FrameU8& frame = m_cyclicBuffer[frameInBuffer];
     assert(frameInBuffer == frame.bufferIdx);
 
     frame.nr = frameNr;
@@ -129,7 +129,7 @@ void FrameController::addFrame(const uint8_t* data)
     runDetection(frame);
 }
 
-void FrameController::runDetection(const Frame &frame)
+void FrameController::runDetection(const FrameU8 &frame)
 {
     //if (!isFrameChanged(m_cyclicBuffer[frameInBuffer], m_cyclicBuffer[prevFrameInBuffer])) {
     //    return;
@@ -277,7 +277,7 @@ FrameController::RecordingResult FrameController::recording(const std::string& f
     return StartedNewVideo;
 }
 
-void FrameController::feedRecorder(const Frame& frame)
+void FrameController::feedRecorder(const FrameU8& frame)
 {
     std::lock_guard<std::mutex> lg(m_recorderMutex);
     if (std::chrono::steady_clock::now() < m_stopRecordingTime) {
@@ -315,7 +315,7 @@ void FrameController::feedRecorder(const Frame& frame)
     }
 }
 
-void FrameController::notifyAboutDetection(const std::string &detectionInfo, const Frame& f, const FrameDescr& fd)
+void FrameController::notifyAboutDetection(const std::string &detectionInfo, const FrameU8& f, const FrameDescr& fd)
 {
     const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
     for (const auto& tuple : m_detectListener) {
@@ -340,7 +340,7 @@ void FrameController::notifyAboutNewFrame()
     const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
 
     uint32_t frameInBuffer = static_cast<uint32_t>(m_frameCtr % m_cyclicBuffer.size());
-    Frame& frame = m_cyclicBuffer[frameInBuffer];
+    FrameU8& frame = m_cyclicBuffer[frameInBuffer];
 
     while (!m_nearestFrameListener.empty()) {
         const auto& tuple = m_nearestFrameListener.front();
@@ -357,7 +357,7 @@ void FrameController::notifyAboutNewFrame()
     }
 }
 
-bool FrameController::isFrameChanged(const Frame& f1, const Frame& f2) const
+bool FrameController::isFrameChanged(const FrameU8& f1, const FrameU8& f2) const
 {
     const uint32_t PIXEL_COUNT_THRESHOLD = static_cast<uint32_t>(m_frameDescr.width*m_frameDescr.height*0.01);
     const uint32_t COMPONENT_THRESHOLD = 15;

@@ -79,7 +79,7 @@ float avarageColor(uint32_t x, uint32_t y, uint32_t c,
     return 0.f;
 }
 
-void Detector::setInput(const Frame &frame, const FrameDescr &descr)
+void Detector::setInput(const FrameU8 &frame, const FrameDescr &descr)
 {
     assert(frame.data.size());
     assert(descr.width);
