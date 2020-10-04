@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 #include <chrono>
+#include "ImgUtils.h"
 
 template <typename ComponentType>
 struct Frame

@@ -2,6 +2,7 @@
 #include "ColorGenerator.h"
 #include "Letters.h"
 #include "PngTools.h"
+#include "ImgUtils.h"
 
 #include <darknet.h>
 #include <iostream>
@@ -106,74 +107,19 @@ bool Detector::detect()
         return false;
     }
 
-    //keep the proportions
     const uint32_t w = static_cast<uint32_t>(m_net->w);
     const uint32_t h = static_cast<uint32_t>(m_net->h);
-    uint32_t newX = 0;
-    uint32_t newY = 0;
-    uint32_t newW = m_inImage.descr.width;
-    uint32_t newH = m_inImage.descr.height;
-    if ((static_cast<float>(w)/m_inImage.descr.width) < (static_cast<float>(h)/m_inImage.descr.height)) {
-        newW = w;
-        newH = (m_inImage.descr.height * w)/m_inImage.descr.width;
-        newX = 0;
-        newY = (h-newH)/2;
-    } else {
-        newH = h;
-        newW = (m_inImage.descr.width * h)/m_inImage.descr.height;
-        newX = (w-newW)/2;
-        newY = 0;
-    }
-    m_netScaledImageX = newX;
-    m_netScaledImageY = newY;
-    m_netScaledImageW = newW;
-    m_netScaledImageH = newH;
+    const uint32_t c = static_cast<uint32_t>(m_net->c);
+    m_netScaledImageX = 0;
+    m_netScaledImageY = 0;
+    m_netScaledImageW = 0;
+    m_netScaledImageH = 0;
+    std::array<float, 3> clearValue = {0.5f, 0.5f, 0.5f};
 
-    //rescale
-    if (m_inImage.descr.components >= static_cast<uint32_t>(m_net->c)) {
-        const uint32_t c = static_cast<uint32_t>(m_net->c);
-
-        double wAspect = static_cast<double>(m_inImage.descr.width) / static_cast<double>(newW);
-        double hAspect = static_cast<double>(m_inImage.descr.height) / static_cast<double>(newH);
-
-        float clearValueF = 0.5f;
-        int clearValue;
-        static_assert(sizeof(float) == sizeof(int), "sizeof(float) not equal sizeof(int)");
-        std::memcpy(&clearValue, &clearValueF, sizeof(int));
-
-        //#pragma omp parallel for
-        for (uint32_t netComponent = 0; netComponent < c; ++netComponent) {
-            for (uint32_t y = newY; y < newY + newH; ++y) {
-                for (uint32_t x = newX; x < newX + newW; ++x) {
-                    uint32_t idx = y*w + x + netComponent*w*h;
-                    m_netInput[idx] = avarageColor(x-newX, y-newY, netComponent,
-                                                   m_inImage.frame.data.data(), m_inImage.descr.width, m_inImage.descr.height, m_inImage.descr.components,
-                                                   wAspect, hAspect);
-                }
-            }
-            //clear left right site
-            if (newX > 0) {
-                for (uint32_t y = 0; y < newH; ++y) {
-                    uint32_t idx = y*w + netComponent*w*h;
-                    std::fill(&m_netInput[idx], &m_netInput[idx+newX], clearValueF);
-                    std::fill(&m_netInput[idx + newX + newW], &m_netInput[idx+w], clearValueF);
-                }
-            }
-            else if (newY > 0) {
-                //clear up
-                for (uint32_t y = 0; y < newY; ++y) {
-                    uint32_t idx = y*w + netComponent*w*h;
-                    std::fill(&m_netInput[idx], &m_netInput[idx+w], clearValueF);
-                }
-
-                //clear bottom
-                for (uint32_t y = newY + newH; y < h; ++y) {
-                    uint32_t idx = y*w + netComponent*w*h;
-                    std::fill(&m_netInput[idx], &m_netInput[idx+w], clearValueF);
-                }
-            }
-        }
-    }
+    ImgUtils::resize(m_inImage.descr.width, m_inImage.descr.height, m_inImage.descr.components, m_inImage.frame.data.data(), ImgUtils::DT_Uint8, ImgUtils::Pixel, 0,
+                     w, h, c, m_netInput.data(), ImgUtils::DT_Float32, ImgUtils::Component, 0, true,
+                     clearValue.data(),
+                     &m_netScaledImageX, &m_netScaledImageY, &m_netScaledImageW, &m_netScaledImageH);
 
     //{
     //    image im;

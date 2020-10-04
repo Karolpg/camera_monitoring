@@ -4,6 +4,9 @@
 #include <type_traits>
 #include <type_traits>
 
+//#include <iostream>
+//#include <iomanip>
+
 namespace ImgUtils
 {
 
@@ -55,14 +58,17 @@ OutData avarageColor(uint32_t x, uint32_t y, uint32_t c,
                                                          >::type;
             RESULT_TYPE maxComponentDivider = RESULT_TYPE(1.0);
             if (!std::is_floating_point<InData>::value && std::is_floating_point<OutData>::value) {  // int -> float
-                maxComponentDivider = RESULT_TYPE(size_t(std::numeric_limits<InData>::max));
+                maxComponentDivider = RESULT_TYPE(size_t(std::numeric_limits<InData>::max()));
             }
             else if(std::is_floating_point<InData>::value && !std::is_floating_point<OutData>::value) { // float -> int
-                maxComponentDivider = RESULT_TYPE(1) / RESULT_TYPE(size_t(std::numeric_limits<InData>::max));
+                maxComponentDivider = RESULT_TYPE(1) / RESULT_TYPE(size_t(std::numeric_limits<InData>::max()));
             }
             // Currently do nothing with integers signed/unsigned, scaling with the range etc.
 
-            return OutData(RESULT_TYPE(accColor) / maskSize / maxComponentDivider);
+            OutData outVal = OutData(RESULT_TYPE(accColor) / maskSize / maxComponentDivider);
+            //std::cout << "outVal: " << std::fixed << std::setprecision(5) << outVal << " avg: " << RESULT_TYPE(accColor) / maskSize
+            //          << " div: " << maxComponentDivider << " max:" << std::numeric_limits<InData>::max() << "\n";
+            return outVal;
         }
         else {
             assert(!"Not implemented yet!");
@@ -71,7 +77,7 @@ OutData avarageColor(uint32_t x, uint32_t y, uint32_t c,
     else {
         assert(!"Not implemented yet!");
     }
-    return 0.;
+    return OutData(0);
 }
 
 
@@ -114,7 +120,7 @@ void resizeTmpl(uint32_t inW, uint32_t inH, uint32_t inC, const InType *inData, 
     }
 
 
-    const uint32_t c = std::min(inC, outC);
+    const uint32_t cMax = std::min(inC, outC);
 
     double wAspect = static_cast<double>(inW) / static_cast<double>(newW);
     double hAspect = static_cast<double>(inH) / static_cast<double>(newH);
@@ -131,7 +137,7 @@ void resizeTmpl(uint32_t inW, uint32_t inH, uint32_t inC, const InType *inData, 
         uint32_t outPixelMove = outOrder == Pixel ? outC : 1;
 
         //#pragma omp parallel for
-        for (uint32_t component = 0; component < c; ++component) {
+        for (uint32_t component = 0; component < cMax; ++component) {
             for (uint32_t y = newY; y < newY + newH; ++y) {
                 for (uint32_t x = newX; x < newX + newW; ++x) {
                     uint32_t idx = (y*outW + x)*outPixelMove + component*outComponentMove;
@@ -151,21 +157,21 @@ void resizeTmpl(uint32_t inW, uint32_t inH, uint32_t inC, const InType *inData, 
                 if (newX > 0) {
                     for (uint32_t y = 0; y < newH; ++y) {
                         uint32_t idx = y*outW*outPixelMove + component*outComponentMove;
-                        std::fill(&outData[idx], &outData[idx+newX*outPixelMove], outClearValue[c]); // fill left
-                        std::fill(&outData[idx + (newX + newW)*outPixelMove], &outData[idx+outW*outPixelMove], outClearValue[c]); // fill right
+                        std::fill(&outData[idx], &outData[idx+newX*outPixelMove], outClearValue[component]); // fill left
+                        std::fill(&outData[idx + (newX + newW)*outPixelMove], &outData[idx+outW*outPixelMove], outClearValue[component]); // fill right
                     }
                 }
                 else if (newY > 0) {
                     //clear up
                     for (uint32_t y = 0; y < newY; ++y) {
                         uint32_t idx = y*outW*outPixelMove + component*outComponentMove;
-                        std::fill(&outData[idx], &outData[idx+outW*outPixelMove], outClearValue[c]);
+                        std::fill(&outData[idx], &outData[idx+outW*outPixelMove], outClearValue[component]);
                     }
 
                     //clear bottom
                     for (uint32_t y = newY + newH; y < outH; ++y) {
                         uint32_t idx = y*outW*outPixelMove + component*outComponentMove;
-                        std::fill(&outData[idx], &outData[idx+outW*outPixelMove], outClearValue[c]);
+                        std::fill(&outData[idx], &outData[idx+outW*outPixelMove], outClearValue[component]);
                     }
                 }
             }
