@@ -136,8 +136,8 @@ void resizeTmpl(uint32_t inW, uint32_t inH, uint32_t inC, const InType *inData, 
         uint32_t outComponentMove = outOrder == Pixel ? 1 : outW*outH;
         uint32_t outPixelMove = outOrder == Pixel ? outC : 1;
 
-        //#pragma omp parallel for
         for (uint32_t component = 0; component < cMax; ++component) {
+            #pragma omp parallel for
             for (uint32_t y = newY; y < newY + newH; ++y) {
                 for (uint32_t x = newX; x < newX + newW; ++x) {
                     uint32_t idx = (y*outW + x)*outPixelMove + component*outComponentMove;
@@ -151,10 +151,10 @@ void resizeTmpl(uint32_t inW, uint32_t inH, uint32_t inC, const InType *inData, 
         }
 
         if (newX > 0 || newY > 0) {
-            //#pragma omp parallel for
             for (uint32_t component = 0; component < outC; ++component) {
                 //clear left right site
                 if (newX > 0) {
+                    #pragma omp parallel for
                     for (uint32_t y = 0; y < newH; ++y) {
                         uint32_t idx = y*outW*outPixelMove + component*outComponentMove;
                         std::fill(&outData[idx], &outData[idx+newX*outPixelMove], outClearValue[component]); // fill left
@@ -163,12 +163,14 @@ void resizeTmpl(uint32_t inW, uint32_t inH, uint32_t inC, const InType *inData, 
                 }
                 else if (newY > 0) {
                     //clear up
+                    #pragma omp parallel for
                     for (uint32_t y = 0; y < newY; ++y) {
                         uint32_t idx = y*outW*outPixelMove + component*outComponentMove;
                         std::fill(&outData[idx], &outData[idx+outW*outPixelMove], outClearValue[component]);
                     }
 
                     //clear bottom
+                    #pragma omp parallel for
                     for (uint32_t y = newY + newH; y < outH; ++y) {
                         uint32_t idx = y*outW*outPixelMove + component*outComponentMove;
                         std::fill(&outData[idx], &outData[idx+outW*outPixelMove], outClearValue[component]);
