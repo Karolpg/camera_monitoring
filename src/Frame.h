@@ -15,6 +15,7 @@ struct Frame
 };
 
 using FrameU8 = Frame<uint8_t>;
+using FrameU16 = Frame<uint16_t>;
 using FrameF32 = Frame<float>;
 
 struct FrameDescr
