@@ -61,7 +61,8 @@ OutData avarageColor(uint32_t x, uint32_t y, uint32_t c,
                 maxComponentDivider = RESULT_TYPE(size_t(std::numeric_limits<InData>::max()));
             }
             else if(std::is_floating_point<InData>::value && !std::is_floating_point<OutData>::value) { // float -> int
-                maxComponentDivider = RESULT_TYPE(1) / RESULT_TYPE(size_t(std::numeric_limits<InData>::max()));
+                //there could be a problem e.g. if user want to express Uint8 values as Uint32
+                maxComponentDivider = RESULT_TYPE(1) / RESULT_TYPE(size_t(std::numeric_limits<OutData>::max()));
             }
             // Currently do nothing with integers signed/unsigned, scaling with the range etc.
 
