@@ -19,9 +19,10 @@ private:
     void buildPyramid(const FrameU8 &frame, const FrameDescr &descr, Pyramid* pyramid);
     void analyzeMovement();
 
-    std::array<Pyramid, 2> m_pyramidFrames;
+    std::array<Pyramid, 3> m_pyramidFrames;
     Pyramid* m_pyramidFirstFrame = nullptr;
     Pyramid* m_pyramidSecondFrame = nullptr;
+    Pyramid* m_pyramidSecondCpyFrame = nullptr; // we need this because od modyfication on second frame
     FrameDescr m_descr;
 
     bool m_movementDetected = false;

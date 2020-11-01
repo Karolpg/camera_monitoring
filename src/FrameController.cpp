@@ -127,6 +127,7 @@ void FrameController::addFrame(const uint8_t* data)
     notifyAboutNewFrame();
     feedRecorder(frame);
     runDetection(frame);
+    //m_moveAnalyzer.feedAnalyzer(frame, m_frameDescr);
 }
 
 void FrameController::runDetection(const FrameU8 &frame)

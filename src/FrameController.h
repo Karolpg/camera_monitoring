@@ -14,6 +14,7 @@
 #include "Detector.h"
 #include "Frame.h"
 #include "Config.h"
+#include "MovementAnalyzer.h"
 
 class VideoRecorder;
 
@@ -85,6 +86,8 @@ private:
     std::mutex m_waitForDetectionTaskMtx;
     std::condition_variable m_waitForDetectionTask;
     std::thread m_detectorThread;
+
+    MovementAnalyzer m_moveAnalyzer;
 
     std::mutex m_recorderMutex;
     std::chrono::steady_clock::time_point m_stopRecordingTime;
