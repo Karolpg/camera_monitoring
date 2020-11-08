@@ -24,14 +24,18 @@ MovementAnalyzer::MovementAnalyzer()
 
 void MovementAnalyzer::feedAnalyzer(const FrameU8 &frame, const FrameDescr &descr)
 {
-    if (m_descr.components != descr.components) {
+    if (m_descrOrg.components != descr.components
+        || m_descrOrg.width != descr.width
+        || m_descrOrg.height != descr.height) {
         m_firstFrameTime = std::chrono::steady_clock::now();
-        m_pyramidFirstFrame = &m_pyramidFrames[0];
-        m_pyramidSecondFrame = &m_pyramidFrames[1];
-        m_pyramidSecondCpyFrame = &m_pyramidFrames[2];
-        m_descr = descr;
+        m_descrOrg = descr;
+        m_descrBase.width = PREFERED_SIZE;
+        m_descrBase.height = PREFERED_SIZE;
+        m_descrBase.components = descr.components;
         allocateMem();
-        buildPyramid(frame, descr, m_pyramidFirstFrame);
+        m_baseFrame = &m_cacheBase[0];
+        m_nextFrame = &m_cacheBase[1];
+        scaleFrame(frame, descr, m_baseFrame);
         return;
     }
 
@@ -42,247 +46,244 @@ void MovementAnalyzer::feedAnalyzer(const FrameU8 &frame, const FrameDescr &desc
         return;
     }
     m_firstFrameTime = frameTime;
-    buildPyramid(frame, descr, m_pyramidSecondFrame);
-    *m_pyramidSecondCpyFrame = *m_pyramidSecondFrame; // we need another copy
+    scaleFrame(frame, descr, m_nextFrame);
     analyzeMovement();
-    std::swap(m_pyramidFirstFrame, m_pyramidSecondCpyFrame);
+    std::swap(m_baseFrame, m_nextFrame);
 
     {
         auto processingTime = std::chrono::steady_clock::now() - frameTime;
         double seconds = std::chrono::duration_cast<std::chrono::seconds>(processingTime).count();
-        std::cout << "MovementAnalyzer::feedAnalyzer time: " << seconds << "[s]\n";
+        double micro = std::chrono::duration_cast<std::chrono::microseconds>(processingTime).count();
+        std::cout << "MovementAnalyzer::feedAnalyzer time: " << seconds << "[s]" << micro << "[us]\n";
         std::cout.flush();
     }
 }
 
 void MovementAnalyzer::allocateMem()
 {
-    for (uint32_t f = 0; f < m_pyramidFrames.size(); ++f) {
-        m_pyramidFrames[f].clear();
-        for (uint32_t size = PYRAMIND_START_SIZE; size >= PYRAMIND_END_SIZE; size = (size >> 1)) {
-            FrameF32 img;
-            img.data.resize(size*size*m_descr.components);
-            m_pyramidFrames[f].push_back(std::move(img));
-        }
+    for (uint32_t f = 0; f < m_cache.size(); ++f) {
+        m_cache[f].data.resize(m_descrBase.width*m_descrBase.height);
+    }
+
+    for (uint32_t f = 0; f < m_cacheBase.size(); ++f) {
+        m_cacheBase[f].data.resize(m_descrBase.width*m_descrBase.height*m_descrBase.components);
     }
 }
 
-void MovementAnalyzer::buildPyramid(const FrameU8 &frame, const FrameDescr &descr, MovementAnalyzer::Pyramid *pyramid)
-{
-    ImgUtils::resize(descr.width, descr.height, descr.components, frame.data.data(), ImgUtils::DT_Uint8, ImgUtils::Pixel, 0,
-                     PYRAMIND_START_SIZE, PYRAMIND_START_SIZE, m_descr.components, (*pyramid)[0].data.data(), ImgUtils::DT_Float32, ImgUtils::Pixel, 0,
+void MovementAnalyzer::scaleFrame(const FrameU8 &frame, const FrameDescr &descr, FrameU8 *outFrame) {
+    ImgUtils::resize(descr.width, descr.height,  descr.components, frame.data.data(), ImgUtils::DT_Uint8, ImgUtils::Pixel, 0,
+                     m_descrBase.width, m_descrBase.height, m_descrBase.components, outFrame->data.data(), ImgUtils::DT_Uint8, ImgUtils::Pixel, 0,
                      false, nullptr, nullptr, nullptr, nullptr, nullptr);
-
-
-    uint32_t size = PYRAMIND_START_SIZE;
-    for (uint32_t ctr = 0; ctr < pyramid->size() - 1; ++ctr) {
-        uint32_t nextSize = (size >> 1);
-        ImgUtils::resize(size, size, m_descr.components, (*pyramid)[ctr].data.data(), ImgUtils::DT_Float32, ImgUtils::Pixel, 0,
-                         nextSize, nextSize, m_descr.components, (*pyramid)[ctr + 1].data.data(), ImgUtils::DT_Float32, ImgUtils::Pixel, 0,
-                         false, nullptr, nullptr, nullptr, nullptr, nullptr);
-        size = nextSize;
-    }
 }
 
-void suqareDiff(const FrameF32& src1, const FrameF32& src2, FrameF32 &out)
+void squareDiff(const FrameU8& src1, const FrameU8& src2, const FrameDescr &srcDescr, FrameU16 &out)
 {
     #pragma omp for
-    for (size_t i = 0; i < src1.data.size(); ++i) {
-        float diff = src1.data[i] - src2.data[i];
-        out.data[i] = diff*diff;
-    }
-}
-
-inline float squareDiffPatch(const std::vector<float>& basePatch,
-                             const FrameF32& otherFrame, const FrameDescr& otherDescr, uint32_t otherX, uint32_t otherY,
-                             uint32_t patchSize
-                             )
-{
-    float sum = 0;
-    uint32_t patchCtr = 0;
-    for (uint32_t y = otherY; y < otherY + patchSize; ++y) {
-        for (uint32_t x = otherX; x < otherX + patchSize; ++x) {
-            for (uint32_t c = 0; c < otherDescr.components; ++c) {
-                uint32_t componentPos = (y*otherDescr.width+x)*otherDescr.components + c;
-                float diff = basePatch[patchCtr++] - otherFrame.data[componentPos];
-                sum += diff*diff;
-            }
+    for (uint32_t i = 0; i < static_cast<uint32_t>(src1.data.size()); i += srcDescr.components) {
+        uint32_t outPos = i / srcDescr.components;
+        out.data[outPos] = 0;
+        for (uint32_t c = 0; c < srcDescr.components; ++c) {
+            float diff = static_cast<float>(src1.data[i + c]) - src2.data[i + c];
+            out.data[outPos] += static_cast<uint16_t>(diff*diff);
         }
     }
-    return sum;
 }
 
-//inline float squareDiffPatch(const float *patchBase, const float *patchOther, uint32_t patchSize, uint32_t components)
-//{
-//    uint32_t pixelSize = patchSize * patchSize * components;
-//    float sum = 0;
-//    for (uint32_t i = 0 ; i < pixelSize; ++i) {
-//        float diff = patchBase[i] - patchOther[i];
-//        sum += diff * diff;
-//    }
-//   return sum;
-//}
-
-//inline float laplacianPatchDiff(std::vector<float*> &colorpatches, std::vector<float*> &colorfpatches,
-//                                 uint32_t x, uint32_t y, uint32_t patchSize, float lambda, uint32_t components)
-//{
-
-//    float *patcha, *patchb, *patchfa, *patchfb;
-
-//    //patcha = (float*)colorpatches[x];
-//    //patchb = (float*)colorpatches[y];
-//    //patchfa = (float*)colorfpatches[x];
-//    //patchfb = (float*)colorfpatches[y];
-
-//    float sum = 0;
-//    uint32_t pixelSize = patchSize * patchSize * components;
-//    float invLambda = 1 - lambda;
-//    for (uint32_t i = 0; i < pixelSize; ++i) {
-//        sum +=  invLambda*(patcha[i] - patchb[i] ) * (patcha[i]  - patchb[i] );
-//        sum +=     lambda*(patchfa[i]- patchfb[i]) * (patchfa[i] - patchfb[i]);
-//    }
-//    return sum;
-//}
-
-static void saveF32(const char* name, const FrameF32& f, const FrameDescr& stepDescr)
+static void saveU16(const char* name, const FrameU16& f)
 {
     FrameU8 b;
-    b.data.resize(stepDescr.width * stepDescr.height * stepDescr.components);
-    ImgUtils::resize(stepDescr.width, stepDescr.height, stepDescr.components, f.data.data(), ImgUtils::DT_Float32, ImgUtils::Pixel, 0,
-                     stepDescr.width, stepDescr.height, stepDescr.components, b.data.data(), ImgUtils::DT_Uint8, ImgUtils::Pixel, 0,
-                     false, nullptr, nullptr, nullptr, nullptr, nullptr);
+    b.data.resize(f.data.size(), 0);
+    for (uint32_t i = 0; i < f.data.size(); ++i) {
+        //b.data[ctr++] = uint8_t(255 * float(u16)/float(255*255*3));
+        if (f.data[i]) {
+            b.data[i] = uint8_t(150);
+        }
+    }
 
     std::stringstream ss;
-    ss << "/tmp/pyramid_" << stepDescr.width << "x" << stepDescr.height << "_" << name;
+    uint32_t w = 512;
+    uint32_t h = 512;
+    ss << "/tmp/MovementAnalyzer_" << w << "x" << h << "_" << name;
     std::string fName = ss.str();
-    PngTools::writePngFile(fName.c_str(), stepDescr.width, stepDescr.height, stepDescr.components, b.data.data());
+    PngTools::writePngFile(fName.c_str(), w, h, 1, b.data.data());
+}
+
+static void saveU8(const char* name, const FrameU8& f, const FrameDescr& descr)
+{
+    std::stringstream ss;
+    ss << "/tmp/MovementAnalyzer_" << descr.width << "x" << descr.height << "_" << name;
+    std::string fName = ss.str();
+    PngTools::writePngFile(fName.c_str(), descr.width, descr.height, descr.components, f.data.data());
 }
 
 void MovementAnalyzer::analyzeMovement()
 {
-    const size_t smallestFrameCtr = m_pyramidSecondFrame->size() - 1;
-    FrameDescr stepDescr;
-    stepDescr.width = PYRAMIND_END_SIZE;
-    stepDescr.height = PYRAMIND_END_SIZE;
-    stepDescr.components = m_descr.components;
-    for (size_t ctr = smallestFrameCtr; int(ctr) >= 0; --ctr) {
-        FrameF32& baseF = (*m_pyramidFirstFrame)[ctr];
-        FrameF32& nextF = (*m_pyramidSecondFrame)[ctr];
+    squareDiff(*m_baseFrame, *m_nextFrame, m_descrBase, m_cache[0]);
+    //saveU8("base", *m_baseFrame, m_descrBase);
+    //saveU8("next", *m_nextFrame, m_descrBase);
 
-        // remove background
-        FrameF32 diff;
-        diff.data.resize(baseF.data.size(), 0);
-        suqareDiff(baseF, nextF, diff);
-
-        if (stepDescr.width == 256) {
-            //saveF32("base", baseF, stepDescr);
-            //saveF32("next", nextF, stepDescr);
-            saveF32("diff", diff, stepDescr);
-        }
-
-        const float zeroThreshold = 0.000015234f;
-        #pragma omp for
-        for (size_t i = 0; i < diff.data.size(); ++i)
+    const uint16_t zeroThreshold = uint16_t(10*10 * m_descrBase.components); // each component square diff is lower than 5^2
+    #pragma omp for
+    for (size_t i = 0; i < m_cache[0].data.size(); ++i)
+    {
+        if (m_cache[0].data[i] <= zeroThreshold)
         {
-            if (diff.data[i] <= zeroThreshold)
-            {
-                baseF.data[i] = 0;
-                nextF.data[i] = 0; // we can't do this - because of swapping at the end of calculation
-                                     // instead of this we change it in linearch patch
-            }
+            m_cache[0].data[i] = 0;
         }
-/*
-        // find patch
-        constexpr uint32_t maskSize = 3;
-        std::vector<Pos> movement(stepDescr.width * stepDescr.height);
+    }
 
-        // classify diff of frames tiled by patch
-        enum PixelProps{IsBg, HasObj, Invalid};
-        FrameU8 bgCheck;                       // Each pixel represents patch starting point and express whole patch.
-        bgCheck.data.resize(stepDescr.width * stepDescr.height, 0); // Here is assumption about only one component!
-        #pragma omp for
-        for (uint32_t y = 0; y < stepDescr.height; ++y) {
-            for (uint32_t x = 0; x < stepDescr.width; ++x) {
-                if (x + maskSize >= stepDescr.width || y + maskSize >= stepDescr.height) {
-                    bgCheck.data[y*stepDescr.width + x] = static_cast<uint8_t>(Invalid);
-                    continue;
-                }
-                float sumToCheck = 0;
-                for (uint32_t mx = 0; mx < maskSize; ++mx) {
-                    for (uint32_t my = 0; my < maskSize; ++my) {
-                        for (uint32_t c = 0; c < stepDescr.components; ++c)
-                        sumToCheck += baseF.data[((y + my) * stepDescr.width + x + mx) * stepDescr.components + c];
-                    }
-                }
-                if (sumToCheck > zeroThreshold) {
-                    bgCheck.data[y * stepDescr.width + x] = static_cast<uint8_t>(HasObj);
-                }
-            }
+    saveU16("smplified", m_cache[0]);
+
+    makeRegions();
+
+    m_movementDetected = false;
+    for (const auto &countPair : m_regions) {
+        if (countPair.second >= REGION_THRESHOLD) {
+            m_movementDetected = true;
+            break;
         }
+    }
 
-        // main loop
-        uint32_t maskInW = stepDescr.width / maskSize;
-        uint32_t maskInH = maskInW;
-        std::vector<float> currentBasePatch(maskSize * maskSize * stepDescr.components);
-        #pragma omp for
-        for (uint32_t maskYPos = 0; maskYPos < maskInH; ++maskYPos) {
-            for (uint32_t maskXPos = 0; maskXPos < maskInW; ++maskXPos) {
 
-                uint32_t basePixPosY = maskYPos*maskSize;
-                uint32_t basePixPosX = maskXPos*maskSize;
-
-                // check is it background
-                if (bgCheck.data[basePixPosY * stepDescr.width + basePixPosX] == static_cast<uint8_t>(IsBg)) {
-                    continue;
-                }
-                // optymize use of current base patch by making it as linear memory
-                for (uint32_t y = 0; y < maskSize; ++y) {
-                    uint32_t baseY = basePixPosY + y;
-                    std::copy(&baseF.data[(baseY * stepDescr.width + basePixPosX) * stepDescr.components]
-                            , &baseF.data[(baseY * stepDescr.width + basePixPosX + maskSize) * stepDescr.components]
-                            , currentBasePatch.data() + y * maskSize * stepDescr.components);
-                }
-
-                //we should provide how many meters are in one pixel - now assume 10% of size but no longer than 7 masks
-                const uint32_t percentageOfSize = std::max(static_cast<uint32_t>(0.1 * stepDescr.width), maskSize);
-                constexpr uint32_t maxMaskCheck = 7;
-                const uint32_t pixelToCheck = std::min(percentageOfSize, maxMaskCheck*maskSize);
-
-                int32_t startCheckingY = static_cast<int32_t>(basePixPosY) - static_cast<int32_t>(pixelToCheck);
-                uint32_t stopCheckingY = basePixPosY + maskSize + pixelToCheck;
-                uint32_t startY = static_cast<uint32_t>(std::max(0, startCheckingY));
-                uint32_t stopY = std::min(stepDescr.height - maskSize, stopCheckingY);
-
-                int32_t startCheckingX = static_cast<int32_t>(basePixPosX) - static_cast<int32_t>(pixelToCheck);
-                uint32_t stopCheckingX = basePixPosX + maskSize + pixelToCheck;
-                uint32_t startX = static_cast<uint32_t>(std::max(0, startCheckingX));
-                uint32_t stopX = std::min(stepDescr.width - maskSize, stopCheckingX);
-
-                float similarityValue = 99999999.0f;
-                for (uint32_t y = startY; y < stopY; ++y) {
-                    for (uint32_t x = startX; x < stopX; ++x) {
-
-                        float currentSimilarity = squareDiffPatch(currentBasePatch, nextF, stepDescr, x, y, maskSize);
-                        // take minimum distance
-                        if (similarityValue > currentSimilarity) {
-                            similarityValue = currentSimilarity;
-                            auto& patchMove = movement[basePixPosY * stepDescr.width + basePixPosX];
-                            patchMove.x = static_cast<uint16_t>(x);
-                            patchMove.y = static_cast<uint16_t>(y);
-                        }
-
-                    }
-                }
-
-            }
-        }
-
-*/
-        // prepare to next frame
-        stepDescr.width <<= 1;
-        stepDescr.height = stepDescr.width;
+    if (m_movementDetected) {
+        static int ctr = 0;
+        std::cout << "Movement detected: " << ++ctr << "\n";
+        std::cout.flush();
     }
 }
 
+void MovementAnalyzer::makeRegions()
+{
+    m_regions.clear();
+    std::map<uint16_t, uint32_t> localRegions; // key = regionId, value = pixel count
+    std::map<uint16_t, uint16_t> regionsConnections; // key = regionId, value = master region
+    uint16_t newRegionId = 1;
+
+    auto& squareDiffImg = m_cache[0].data;
+    // first element
+    if (squareDiffImg[0] > 0) {
+        squareDiffImg[0] = newRegionId;
+        localRegions[newRegionId] = 1;
+        ++newRegionId;
+    }
+    // first line
+    for (uint32_t x = 1; x < m_descrBase.width; ++x) {
+        if (squareDiffImg[x] > 0) {
+            if (squareDiffImg[x-1] > 0) {
+                uint16_t prevRegion = squareDiffImg[x-1];
+                squareDiffImg[x] = prevRegion;
+                localRegions[prevRegion] += 1;
+            }
+            else {
+                squareDiffImg[x] = newRegionId;
+                localRegions[newRegionId] = 1;
+                ++newRegionId;
+            }
+        }
+    }
+
+    // rest elements
+    for (uint32_t y = 1; y < m_descrBase.height; ++y) {
+        uint32_t pixelRow = y * m_descrBase.width;
+        uint32_t pixelUpRow = pixelRow - m_descrBase.width;
+
+        if (squareDiffImg[pixelRow] > 0) {
+            if (squareDiffImg[pixelUpRow] > 0) {
+                uint16_t prevRegion = squareDiffImg[pixelUpRow];
+                squareDiffImg[pixelRow] = prevRegion;
+                localRegions[prevRegion] += 1;
+            }
+            else {
+                squareDiffImg[pixelRow] = newRegionId;
+                localRegions[newRegionId] = 1;
+                ++newRegionId;
+            }
+        }
+
+        for (uint32_t x = 1; x < m_descrBase.width; ++x) {
+            uint32_t pixelPos = pixelRow + x;
+            if (squareDiffImg[pixelPos] > 0) {
+                uint16_t prevRegion = squareDiffImg[pixelPos-1];
+                uint16_t upRegion = squareDiffImg[pixelPos-m_descrBase.width];
+                if (prevRegion > 0 || upRegion > 0) {
+                    uint16_t useRegion = upRegion == 0 ? prevRegion : upRegion;
+
+                    if (prevRegion > 0 && upRegion > 0 && prevRegion != upRegion) {
+                        regionsConnections[prevRegion] = upRegion;
+                    }
+
+                    squareDiffImg[x] = useRegion;
+                    localRegions[useRegion] += 1;
+                }
+                else {
+                    squareDiffImg[pixelPos] = newRegionId;
+                    localRegions[newRegionId] = 1;
+                    ++newRegionId;
+                }
+            }
+        }
+    }
+
+    // sum connected regions
+    for (auto& connection : regionsConnections) {
+        uint32_t &childCount = localRegions[connection.first];
+        localRegions[connection.second] += childCount;
+        childCount = 0;
+    } 
+    // take only positive
+    for (const auto &countPair : localRegions) {
+        if (countPair.second > 0) {
+            m_regions.insert(countPair);
+        }
+    }
+
+    // debug
+    {
+        if(m_regions.empty())
+        {
+            return;
+        }
+
+        for (auto& pix : squareDiffImg) {
+            if (pix && regionsConnections.count(pix)) {
+                auto it = regionsConnections.find(pix);
+                uint16_t parent = 0;
+                while (it != regionsConnections.end()) {
+                    parent = it->second;
+                    it = regionsConnections.find(parent);
+                }
+                pix = parent;
+            }
+        }
+
+        std::map<uint32_t, uint16_t> sortedSize;
+        for (const auto &countPair : m_regions) {
+            sortedSize.insert(std::make_pair(countPair.second, countPair.first));
+        }
+        std::map<uint16_t, uint8_t> regionToColor;
+        uint8_t currentColor = 255;
+        for (auto it = m_regions.end(); it != m_regions.begin() && currentColor >= 20;) {
+            --it;
+            regionToColor[it->first] = currentColor;
+            currentColor -= 20;
+        }
+
+        FrameU8 b;
+        b.data.resize(squareDiffImg.size(), 0);
+        for (uint32_t i = 0; i < b.data.size(); ++i) {
+            if (squareDiffImg[i]) {
+                auto colorIt = regionToColor.find(squareDiffImg[i]);
+                b.data[i] = colorIt != regionToColor.end() ? colorIt->second : 0;
+            }
+        }
+
+        std::stringstream ss;
+        uint32_t w = 512;
+        uint32_t h = 512;
+        ss << "/tmp/MovementAnalyzer_" << w << "x" << h << "_" << "regions";
+        std::string fName = ss.str();
+        PngTools::writePngFile(fName.c_str(), w, h, 1, b.data.data());
+    }
+}
 
 

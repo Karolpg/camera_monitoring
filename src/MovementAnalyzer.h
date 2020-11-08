@@ -3,6 +3,7 @@
 #include "Frame.h"
 #include <chrono>
 #include <array>
+#include <map>
 
 class MovementAnalyzer
 {
@@ -13,22 +14,26 @@ public:
 
     bool isMovementDetected() const { return m_movementDetected; }
 private:
-    using Pyramid = std::vector<FrameF32>;
 
     void allocateMem();
-    void buildPyramid(const FrameU8 &frame, const FrameDescr &descr, Pyramid* pyramid);
+    void scaleFrame(const FrameU8 &frame, const FrameDescr &descr, FrameU8 *outFrame);
     void analyzeMovement();
+    void makeRegions();
 
-    std::array<Pyramid, 3> m_pyramidFrames;
-    Pyramid* m_pyramidFirstFrame = nullptr;
-    Pyramid* m_pyramidSecondFrame = nullptr;
-    Pyramid* m_pyramidSecondCpyFrame = nullptr; // we need this because od modyfication on second frame
-    FrameDescr m_descr;
+    FrameU8 *m_baseFrame = nullptr;
+    FrameU8 *m_nextFrame = nullptr;
+    std::array<FrameU8, 2> m_cacheBase;
+    std::array<FrameU16, 1> m_cache;
 
-    bool m_movementDetected = false;
+    FrameDescr m_descrOrg;
+    FrameDescr m_descrBase;
+
+    volatile bool m_movementDetected = false;
     std::chrono::time_point<std::chrono::steady_clock> m_firstFrameTime;
 
-    const double TIME_BETWEEN_FRAMES = 0.3; // [s]
-    const uint32_t PYRAMIND_START_SIZE = 512; // have to pow of 2
-    const uint32_t PYRAMIND_END_SIZE = 32; // have to pow of 2
+    static constexpr double TIME_BETWEEN_FRAMES = 0.3; // [s]
+    static constexpr uint32_t PREFERED_SIZE = 512;
+    static constexpr uint32_t REGION_THRESHOLD = 50*30;
+
+    std::map<uint16_t, uint32_t> m_regions; // key = regionId, value = pixel count
 };
