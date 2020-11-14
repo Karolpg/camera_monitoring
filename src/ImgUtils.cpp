@@ -12,73 +12,63 @@ namespace ImgUtils
 
 template<typename InData, typename OutData>
 OutData avarageColor(uint32_t x, uint32_t y, uint32_t c,
-                       const InData* data, uint32_t width, uint32_t height, uint32_t components,
-                        uint32_t componentMove, uint32_t pixelMove,
-                       double wAspect, double hAspect)
+                     const InData* data, uint32_t width, uint32_t height, uint32_t components,
+                     uint32_t componentMove, uint32_t pixelMove,
+                     double wAspect, double hAspect)
 {
     assert(c <= components);
-    if (wAspect >= 1.0) {
-        if (hAspect >= 1.0) {
-            uint32_t rawX = static_cast<uint32_t>(wAspect * x);
-            uint32_t rawY = static_cast<uint32_t>(hAspect * y);
+
+    uint32_t rawX = static_cast<uint32_t>(wAspect * x);
+    uint32_t rawY = static_cast<uint32_t>(hAspect * y);
 
 
-            // choose type:
-            // - InData is float => float
-            // - InData is double => double
-            // - InData is int8 or int16 or int32 => int32  if bigger then take int64
-            // - InData is uint8 or uint16 or uint32 => uint32  if bigger then take uint64
-            using ACC_TYPE = typename std::conditional<std::is_floating_point<InData>::value,
-                                                       typename std::conditional<(sizeof(InData) > sizeof(float)), double, float>::type,
-                                                       typename std::conditional<std::is_unsigned<InData>::value,
-                                                                                 typename std::conditional<(sizeof(InData) > sizeof(uint32_t)), uint64_t, uint32_t>::type,
-                                                                                 typename std::conditional<(sizeof(InData) > sizeof(int32_t)),   int64_t,  int32_t>::type
-                                                                                >::type
-                                                      >::type;
-            ACC_TYPE accColor = 0;
+    // choose type:
+    // - InData is float => float
+    // - InData is double => double
+    // - InData is int8 or int16 or int32 => int32  if bigger then take int64
+    // - InData is uint8 or uint16 or uint32 => uint32  if bigger then take uint64
+    using ACC_TYPE = typename std::conditional<std::is_floating_point<InData>::value,
+                                               typename std::conditional<(sizeof(InData) > sizeof(float)), double, float>::type,
+                                               typename std::conditional<std::is_unsigned<InData>::value,
+                                                                         typename std::conditional<(sizeof(InData) > sizeof(uint32_t)), uint64_t, uint32_t>::type,
+                                                                         typename std::conditional<(sizeof(InData) > sizeof(int32_t)),   int64_t,  int32_t>::type
+                                                                        >::type
+                                              >::type;
+    ACC_TYPE accColor = 0;
 
-            uint32_t maskX = static_cast<uint32_t>(wAspect + 0.5);
-            uint32_t maskY = static_cast<uint32_t>(hAspect + 0.5);
-            uint32_t rawXEnd = std::min(rawX+maskX, width);
-            uint32_t rawYEnd = std::min(rawY+maskY, height);
-            uint32_t maskSize = (rawXEnd - rawX) * (rawYEnd - rawY);
+    uint32_t maskX = static_cast<uint32_t>(wAspect + 0.5);
+    uint32_t maskY = static_cast<uint32_t>(hAspect + 0.5);
+    uint32_t rawXEnd = std::min(rawX+maskX, width);
+    uint32_t rawYEnd = std::min(rawY+maskY, height);
+    uint32_t maskSize = (rawXEnd - rawX) * (rawYEnd - rawY);
 
-            for (uint32_t imgY = rawY; imgY < rawYEnd; ++imgY) {
-                for (uint32_t imgX = rawX; imgX < rawXEnd; ++imgX) {
-                    accColor += static_cast<ACC_TYPE>(
-                                    data[(imgY*width+imgX)*pixelMove + c*componentMove]
-                                );
-                }
-            }
-
-            // choose bigger or smaller floating point
-            using RESULT_TYPE = typename std::conditional<std::is_floating_point<InData>::value,
-                                                          typename std::conditional<(sizeof(InData) > sizeof(float)), double, float>::type,
-                                                          typename std::conditional<(sizeof(InData) > sizeof(int32_t)), double, float>::type
-                                                         >::type;
-            RESULT_TYPE maxComponentDivider = RESULT_TYPE(1.0);
-            if (!std::is_floating_point<InData>::value && std::is_floating_point<OutData>::value) {  // int -> float
-                maxComponentDivider = RESULT_TYPE(size_t(std::numeric_limits<InData>::max()));
-            }
-            else if(std::is_floating_point<InData>::value && !std::is_floating_point<OutData>::value) { // float -> int
-                //there could be a problem e.g. if user want to express Uint8 values as Uint32
-                maxComponentDivider = RESULT_TYPE(1) / RESULT_TYPE(size_t(std::numeric_limits<OutData>::max()));
-            }
-            // Currently do nothing with integers signed/unsigned, scaling with the range etc.
-
-            OutData outVal = OutData(RESULT_TYPE(accColor) / maskSize / maxComponentDivider);
-            //std::cout << "outVal: " << std::fixed << std::setprecision(5) << outVal << " avg: " << RESULT_TYPE(accColor) / maskSize
-            //          << " div: " << maxComponentDivider << " max:" << std::numeric_limits<InData>::max() << "\n";
-            return outVal;
-        }
-        else {
-            assert(!"Not implemented yet!");
+    for (uint32_t imgY = rawY; imgY < rawYEnd; ++imgY) {
+        for (uint32_t imgX = rawX; imgX < rawXEnd; ++imgX) {
+            accColor += static_cast<ACC_TYPE>(
+                            data[(imgY*width+imgX)*pixelMove + c*componentMove]
+                        );
         }
     }
-    else {
-        assert(!"Not implemented yet!");
+
+    // choose bigger or smaller floating point
+    using RESULT_TYPE = typename std::conditional<std::is_floating_point<InData>::value,
+                                                  typename std::conditional<(sizeof(InData) > sizeof(float)), double, float>::type,
+                                                  typename std::conditional<(sizeof(InData) > sizeof(int32_t)), double, float>::type
+                                                 >::type;
+    RESULT_TYPE maxComponentDivider = RESULT_TYPE(1.0);
+    if (!std::is_floating_point<InData>::value && std::is_floating_point<OutData>::value) {  // int -> float
+        maxComponentDivider = RESULT_TYPE(size_t(std::numeric_limits<InData>::max()));
     }
-    return OutData(0);
+    else if(std::is_floating_point<InData>::value && !std::is_floating_point<OutData>::value) { // float -> int
+        //there could be a problem e.g. if user want to express Uint8 values as Uint32
+        maxComponentDivider = RESULT_TYPE(1) / RESULT_TYPE(size_t(std::numeric_limits<OutData>::max()));
+    }
+    // Currently do nothing with integers signed/unsigned, scaling with the range etc.
+
+    OutData outVal = OutData(RESULT_TYPE(accColor) / maskSize / maxComponentDivider);
+    //std::cout << "outVal: " << std::fixed << std::setprecision(5) << outVal << " avg: " << RESULT_TYPE(accColor) / maskSize
+    //          << " div: " << maxComponentDivider << " max:" << std::numeric_limits<InData>::max() << "\n";
+    return outVal;
 }
 
 
@@ -137,15 +127,30 @@ void resizeTmpl(uint32_t inW, uint32_t inH, uint32_t inC, const InType *inData, 
         uint32_t outComponentMove = outOrder == Pixel ? 1 : outW*outH;
         uint32_t outPixelMove = outOrder == Pixel ? outC : 1;
 
+        using ColorFunc = decltype (avarageColor<InType, OutType>);
+        ColorFunc* colorFunc = nullptr;
+
+        if (wAspect >= 1.0) {
+            if (hAspect >= 1.0) {
+                colorFunc = avarageColor<InType, OutType>;
+            }
+            else {
+                assert(!"Not implemented yet!");
+            }
+        }
+        else {
+            assert(!"Not implemented yet!");
+        }
+
         for (uint32_t component = 0; component < cMax; ++component) {
             #pragma omp parallel for
             for (uint32_t y = newY; y < newY + newH; ++y) {
                 for (uint32_t x = newX; x < newX + newW; ++x) {
                     uint32_t idx = (y*outW + x)*outPixelMove + component*outComponentMove;
-                    outData[idx] = avarageColor<InType, OutType>(x-newX, y-newY, component,
-                                                                 inData, inW, inH, inC,
-                                                                 inComponentMove, inPixelMove,
-                                                                 wAspect, hAspect);
+                    outData[idx] = colorFunc(x-newX, y-newY, component,
+                                             inData, inW, inH, inC,
+                                             inComponentMove, inPixelMove,
+                                             wAspect, hAspect);
                 }
             }
 
