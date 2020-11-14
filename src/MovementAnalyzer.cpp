@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 #include <iostream>
+#include <set>
 #include "PngTools.h"
 
 namespace  {
@@ -46,7 +47,21 @@ void MovementAnalyzer::feedAnalyzer(const FrameU8 &frame, const FrameDescr &desc
         return;
     }
     m_firstFrameTime = frameTime;
+
+        auto beforeTime = std::chrono::steady_clock::now();
+
     scaleFrame(frame, descr, m_nextFrame);
+
+        makeRegions();
+
+        {
+            auto processingTime = std::chrono::steady_clock::now() - beforeTime;
+            double micro = std::chrono::duration_cast<std::chrono::microseconds>(processingTime).count();
+            std::cout << "MovementAnalyzer::scaleFrame time: " << micro << "[us]\n";
+            std::cout.flush();
+        }
+
+
     analyzeMovement();
     std::swap(m_baseFrame, m_nextFrame);
 
@@ -132,9 +147,18 @@ void MovementAnalyzer::analyzeMovement()
         }
     }
 
-    saveU16("smplified", m_cache[0]);
+    //saveU16("smplified", m_cache[0]);
+
+//    auto beforeTime = std::chrono::steady_clock::now();
 
     makeRegions();
+
+//    {
+//        auto processingTime = std::chrono::steady_clock::now() - beforeTime;
+//        double micro = std::chrono::duration_cast<std::chrono::microseconds>(processingTime).count();
+//        std::cout << "MovementAnalyzer::makeRegions time: " << micro << "[us]\n";
+//        std::cout.flush();
+//    }
 
     m_movementDetected = false;
     for (const auto &countPair : m_regions) {
@@ -145,18 +169,18 @@ void MovementAnalyzer::analyzeMovement()
     }
 
 
-    if (m_movementDetected) {
-        static int ctr = 0;
-        std::cout << "Movement detected: " << ++ctr << "\n";
-        std::cout.flush();
-    }
+    //if (m_movementDetected) {
+    //    static int ctr = 0;
+    //    std::cout << "Movement detected: " << ++ctr << "\n";
+    //    std::cout.flush();
+    //}
 }
 
 void MovementAnalyzer::makeRegions()
 {
     m_regions.clear();
     std::map<uint16_t, uint32_t> localRegions; // key = regionId, value = pixel count
-    std::map<uint16_t, uint16_t> regionsConnections; // key = regionId, value = master region
+    std::map<uint16_t, std::set<uint16_t>> regionsConnections; // key = regionId, value = master region
     uint16_t newRegionId = 1;
 
     auto& squareDiffImg = m_cache[0].data;
@@ -203,16 +227,28 @@ void MovementAnalyzer::makeRegions()
         for (uint32_t x = 1; x < m_descrBase.width; ++x) {
             uint32_t pixelPos = pixelRow + x;
             if (squareDiffImg[pixelPos] > 0) {
-                uint16_t prevRegion = squareDiffImg[pixelPos-1];
-                uint16_t upRegion = squareDiffImg[pixelPos-m_descrBase.width];
-                if (prevRegion > 0 || upRegion > 0) {
-                    uint16_t useRegion = upRegion == 0 ? prevRegion : upRegion;
-
-                    if (prevRegion > 0 && upRegion > 0 && prevRegion != upRegion) {
-                        regionsConnections[prevRegion] = upRegion;
+                uint16_t prevRegion   = squareDiffImg[pixelPos-1];
+                uint16_t upRegion     = squareDiffImg[pixelUpRow + x];
+                uint16_t upPrevRegion = squareDiffImg[pixelUpRow + x - 1];
+                if (prevRegion > 0 || upRegion > 0 || upPrevRegion > 0) {
+                    uint16_t useRegion = upPrevRegion > 0 ? upPrevRegion :
+                                        (upRegion     > 0 ? upRegion
+                                                          : prevRegion);
+                    if (upRegion > 0) {
+                        if (useRegion != upRegion) {
+                            regionsConnections[useRegion].insert(upRegion);
+                            regionsConnections[upRegion].insert(useRegion);
+                        }
                     }
 
-                    squareDiffImg[x] = useRegion;
+                    if (prevRegion > 0) {
+                        if (useRegion != prevRegion) {
+                            regionsConnections[useRegion].insert(prevRegion);
+                            regionsConnections[prevRegion].insert(useRegion);
+                        }
+                    }
+
+                    squareDiffImg[pixelPos] = useRegion;
                     localRegions[useRegion] += 1;
                 }
                 else {
@@ -226,9 +262,39 @@ void MovementAnalyzer::makeRegions()
 
     // sum connected regions
     for (auto& connection : regionsConnections) {
-        uint32_t &childCount = localRegions[connection.first];
-        localRegions[connection.second] += childCount;
-        childCount = 0;
+        auto currentRegion = connection.first;
+        uint32_t &currentCount = localRegions[currentRegion];
+        auto& connectedSet = connection.second;
+        std::vector<decltype(currentRegion)> connectedList;
+        connectedList.reserve(connectedSet.size() + connectedSet.size()/2); // assume 50% more mem
+        for (auto it = connectedSet.begin(); it != connectedSet.end(); ++it) {
+            connectedList.push_back(*it);
+        }
+        for (uint32_t i = 0; i < connectedList.size(); ++i) {
+            auto neighbourRegion = connectedList[i];
+            auto & yourRegions = regionsConnections[neighbourRegion];
+
+            // your regions became my regions - you will be connected only with me
+            for (auto it = yourRegions.begin(); it != yourRegions.end();) {
+                if (*it == currentRegion) {
+                    ++it;
+                    continue;
+                }
+                if (connectedSet.find(*it) == connectedSet.end()) { // take only new connections
+                    connectedSet.insert(*it);
+                    connectedList.push_back(*it);
+                }
+                it = yourRegions.erase(it);
+            }
+
+            if (yourRegions.empty()) { // your are neighbour of my neighbours, but until now I haven't know you
+                yourRegions.insert(currentRegion);
+            }
+
+            uint32_t &neighbourCount = localRegions[neighbourRegion];
+            currentCount += neighbourCount;
+            neighbourCount = 0;
+        }
     } 
     // take only positive
     for (const auto &countPair : localRegions) {
@@ -238,21 +304,26 @@ void MovementAnalyzer::makeRegions()
     }
 
     // debug
+    /*
     {
         if(m_regions.empty())
         {
             return;
         }
 
+        // repaint connected
         for (auto& pix : squareDiffImg) {
-            if (pix && regionsConnections.count(pix)) {
-                auto it = regionsConnections.find(pix);
-                uint16_t parent = 0;
-                while (it != regionsConnections.end()) {
-                    parent = it->second;
-                    it = regionsConnections.find(parent);
+            if (pix) {
+                if (localRegions[pix] == 0) {
+                    // sanity check
+                    const auto& connections = regionsConnections[pix];
+                    if (connections.size() != 1) {
+                        std::cout << "Impossible!!!\n";
+                        std::cout.flush();
+                        std::abort();
+                    }
+                    pix = *connections.begin();
                 }
-                pix = parent;
             }
         }
 
@@ -262,9 +333,9 @@ void MovementAnalyzer::makeRegions()
         }
         std::map<uint16_t, uint8_t> regionToColor;
         uint8_t currentColor = 255;
-        for (auto it = m_regions.end(); it != m_regions.begin() && currentColor >= 20;) {
+        for (auto it = sortedSize.end(); it != sortedSize.begin() && currentColor >= 20;) {
             --it;
-            regionToColor[it->first] = currentColor;
+            regionToColor[it->second] = currentColor;
             currentColor -= 20;
         }
 
@@ -284,6 +355,7 @@ void MovementAnalyzer::makeRegions()
         std::string fName = ss.str();
         PngTools::writePngFile(fName.c_str(), w, h, 1, b.data.data());
     }
+    */
 }
 
 
