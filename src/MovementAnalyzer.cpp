@@ -1,26 +1,57 @@
 #include "MovementAnalyzer.h"
 
 #include "ImgUtils.h"
+#include "CppTools.h"
 
-#include <string>
-#include <sstream>
-#include <iostream>
 #include <set>
-#include "PngTools.h"
 
-namespace  {
-
-struct Pos
-{
-    uint16_t x = 0xffff;
-    uint16_t y = 0xffff;
-};
-
-}
+//#include <string>
+//#include <sstream>
+//#include <iostream>
+//#include "PngTools.h"
 
 
 MovementAnalyzer::MovementAnalyzer()
 {
+    m_calculationThread = std::thread([this] () {
+        while (m_threadIsRunning) {
+            {
+                std::unique_lock<std::mutex> ul(m_waitForCalculationTaskMtx);
+                m_waitForCalculationTaskCv.wait(ul, [this] { return m_newTask; });
+            }
+            if (!m_threadIsRunning) {
+                break;
+            }
+
+            //auto beginTime = std::chrono::steady_clock::now();
+
+            analyzeMovement();
+
+            /*
+            {
+                auto processingTime = std::chrono::steady_clock::now() - beginTime;
+                double seconds = std::chrono::duration_cast<std::chrono::seconds>(processingTime).count();
+                double micro = std::chrono::duration_cast<std::chrono::microseconds>(processingTime).count();
+                std::cout << "MovementAnalyzer::analyzeMovement time: " << seconds << "[s]" << micro << "[us]\n";
+                std::cout.flush();
+            }
+            */
+
+            std::swap(m_baseFrame, m_nextFrame);
+            m_newTask = false;
+        }
+    });
+}
+
+MovementAnalyzer::~MovementAnalyzer()
+{
+    m_threadIsRunning = true;
+    m_newTask = true;
+    m_waitForCalculationTaskCv.notify_all();
+    if (m_calculationThread.joinable()) {
+        m_calculationThread.join();
+    }
+
 }
 
 void MovementAnalyzer::feedAnalyzer(const FrameU8 &frame, const FrameDescr &descr)
@@ -36,41 +67,45 @@ void MovementAnalyzer::feedAnalyzer(const FrameU8 &frame, const FrameDescr &desc
         allocateMem();
         m_baseFrame = &m_cacheBase[0];
         m_nextFrame = &m_cacheBase[1];
+        m_baseFrame->nr = frame.nr;
+        m_baseFrame->bufferIdx = frame.bufferIdx;
         scaleFrame(frame, descr, m_baseFrame);
         return;
     }
 
     auto frameTime = std::chrono::steady_clock::now();
-    auto timeBetweenFrames = frameTime - m_firstFrameTime;
-    double seconds = std::chrono::duration_cast<std::chrono::seconds>(timeBetweenFrames).count();
+    std::chrono::duration<double> timeBetweenFrames = frameTime - m_firstFrameTime;
+    double seconds = timeBetweenFrames.count();
     if (seconds < TIME_BETWEEN_FRAMES) {
         return;
     }
-    m_firstFrameTime = frameTime;
 
-        auto beforeTime = std::chrono::steady_clock::now();
+    if (!m_newTask) {
+        m_newTask = true;
+        m_nextFrame->nr = frame.nr;
+        m_nextFrame->bufferIdx = frame.bufferIdx;
+        scaleFrame(frame, descr, m_nextFrame);
+        m_waitForCalculationTaskCv.notify_one();
+        m_firstFrameTime = frameTime;
+    }
+}
 
-    scaleFrame(frame, descr, m_nextFrame);
+void MovementAnalyzer::subscribeOnMovementDetected(MovementAnalyzer::OnMovementDetected notifyFunc, void *ctx)
+{
+    const std::lock_guard<std::mutex> lock(m_listenerMovementDetectedMutex);
+    m_movementDetectedListener.push_back(std::make_tuple(ctx, notifyFunc));
+}
 
-        makeRegions();
-
-        {
-            auto processingTime = std::chrono::steady_clock::now() - beforeTime;
-            double micro = std::chrono::duration_cast<std::chrono::microseconds>(processingTime).count();
-            std::cout << "MovementAnalyzer::scaleFrame time: " << micro << "[us]\n";
-            std::cout.flush();
+void MovementAnalyzer::unsubscribeOnMovementDetected(MovementAnalyzer::OnMovementDetected notifyFunc, void *ctx)
+{
+    const std::lock_guard<std::mutex> lock(m_listenerMovementDetectedMutex);
+    for (auto it = m_movementDetectedListener.begin(); it != m_movementDetectedListener.end();) {
+        if (ctx == std::get<0>(*it) && CppTools::functionAddress(notifyFunc) == CppTools::functionAddress(std::get<1>(*it))) {
+            it = m_movementDetectedListener.erase(it);
         }
-
-
-    analyzeMovement();
-    std::swap(m_baseFrame, m_nextFrame);
-
-    {
-        auto processingTime = std::chrono::steady_clock::now() - frameTime;
-        double seconds = std::chrono::duration_cast<std::chrono::seconds>(processingTime).count();
-        double micro = std::chrono::duration_cast<std::chrono::microseconds>(processingTime).count();
-        std::cout << "MovementAnalyzer::feedAnalyzer time: " << seconds << "[s]" << micro << "[us]\n";
-        std::cout.flush();
+        else {
+            ++it;
+        }
     }
 }
 
@@ -104,6 +139,7 @@ void squareDiff(const FrameU8& src1, const FrameU8& src2, const FrameDescr &srcD
     }
 }
 
+/*
 static void saveU16(const char* name, const FrameU16& f)
 {
     FrameU8 b;
@@ -130,6 +166,7 @@ static void saveU8(const char* name, const FrameU8& f, const FrameDescr& descr)
     std::string fName = ss.str();
     PngTools::writePngFile(fName.c_str(), descr.width, descr.height, descr.components, f.data.data());
 }
+*/
 
 void MovementAnalyzer::analyzeMovement()
 {
@@ -149,31 +186,14 @@ void MovementAnalyzer::analyzeMovement()
 
     //saveU16("smplified", m_cache[0]);
 
-//    auto beforeTime = std::chrono::steady_clock::now();
-
     makeRegions();
 
-//    {
-//        auto processingTime = std::chrono::steady_clock::now() - beforeTime;
-//        double micro = std::chrono::duration_cast<std::chrono::microseconds>(processingTime).count();
-//        std::cout << "MovementAnalyzer::makeRegions time: " << micro << "[us]\n";
-//        std::cout.flush();
-//    }
-
-    m_movementDetected = false;
     for (const auto &countPair : m_regions) {
         if (countPair.second >= REGION_THRESHOLD) {
-            m_movementDetected = true;
+            notifyAboutMovementDetected();
             break;
         }
     }
-
-
-    //if (m_movementDetected) {
-    //    static int ctr = 0;
-    //    std::cout << "Movement detected: " << ++ctr << "\n";
-    //    std::cout.flush();
-    //}
 }
 
 void MovementAnalyzer::makeRegions()
@@ -358,4 +378,12 @@ void MovementAnalyzer::makeRegions()
     */
 }
 
-
+void MovementAnalyzer::notifyAboutMovementDetected()
+{
+    const std::lock_guard<std::mutex> lock(m_listenerMovementDetectedMutex);
+    for (const auto& tuple : m_movementDetectedListener) {
+        void* ctx = std::get<0>(tuple);
+        OnMovementDetected func = std::get<1>(tuple);
+        func(m_nextFrame->nr, m_nextFrame->bufferIdx, ctx);
+    }
+}

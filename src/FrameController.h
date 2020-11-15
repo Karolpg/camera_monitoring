@@ -73,6 +73,8 @@ private:
     void notifyAboutVideoReady(const std::string& videoFilePath);
     void notifyAboutNewFrame();
 
+    static void onMovementDetected(uint64_t frameNumber, uint32_t bufferIdx, void* ctx);
+
     double m_cameraFps = 0.0;
     double m_frameTime = 0.0;
 

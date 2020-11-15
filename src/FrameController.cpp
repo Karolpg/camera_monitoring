@@ -2,6 +2,7 @@
 #include "PngTools.h"
 #include "VideoRecorder.h"
 #include "DirUtils.h"
+#include "CppTools.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -49,6 +50,9 @@ FrameController::FrameController(const Config& cfg)
     std::cout << "Storing video in: " << m_videoDirectory << "\n";
 
     m_detectorThread = std::thread([this]{ detectionThreadFunc(); });
+
+
+    m_moveAnalyzer.subscribeOnMovementDetected(onMovementDetected, this);
 }
 
 FrameController::~FrameController()
@@ -126,8 +130,31 @@ void FrameController::addFrame(const uint8_t* data)
 
     notifyAboutNewFrame();
     feedRecorder(frame);
-    runDetection(frame);
-    //m_moveAnalyzer.feedAnalyzer(frame, m_frameDescr);
+    m_moveAnalyzer.feedAnalyzer(frame, m_frameDescr);
+}
+
+void FrameController::onMovementDetected(uint64_t frameNumber, uint32_t bufferIdx, void *ctx)
+{
+    FrameController& fc = *reinterpret_cast<FrameController*>(ctx);
+
+    if (bufferIdx >= fc.m_cyclicBuffer.size()) {
+        assert(!"This never should be out of scope - otherwise flow is not correct!");
+        return;
+    }
+
+    if (fc.m_cyclicBuffer[bufferIdx].nr != frameNumber) {
+        std::cout << "Timeout! Frame: " << frameNumber << " is not in cyclic buffer.\n";
+        std::cout.flush();
+
+        uint32_t frameInBuffer = static_cast<uint32_t>(fc.m_frameCtr % fc.m_cyclicBuffer.size());
+        fc.runDetection(fc.m_cyclicBuffer[frameInBuffer]); // run lates frame
+    }
+    else {
+        // hope we not override this frame but here - another solution is carrying copy of frame
+        // I would like to omit it.
+        fc.runDetection(fc.m_cyclicBuffer[bufferIdx]);
+    }
+
 }
 
 void FrameController::runDetection(const FrameU8 &frame)
@@ -223,6 +250,20 @@ void FrameController::detect()
     else {
         std::chrono::duration<double> detectTime = std::chrono::steady_clock::now() - start;
         std::cout << "Nothing detected. Detection time: " << detectTime.count() << "[s]\n";
+
+        // movement trigger
+        std::string filePath = m_videoDirectory + "detection_";
+        filePath += currentDateTime();
+        filePath += "_nothing";
+        std::string detectedFrameFilePath = filePath + ".png";
+        //std::string videoFilePath = filePath + ".mpeg";
+
+        auto detectedInImg = m_detectionData.detector->getInImg();
+        PngTools::writePngFile(detectedFrameFilePath.c_str(),
+                               detectedInImg.descr.width, detectedInImg.descr.height, detectedInImg.descr.components, detectedInImg.frame.data.data());
+
+        std::string info = "Movement detected without recognition on: " + detectedFrameFilePath;
+        notifyAboutDetection(info, detectedInImg.frame, detectedInImg.descr);
     }
     std::cout.flush();
 }
@@ -399,18 +440,6 @@ bool FrameController::isFrameChanged(const FrameU8& f1, const FrameU8& f2) const
     return (pixelDiff > PIXEL_COUNT_THRESHOLD);
 }
 
-namespace  {
-
-template<typename T, typename... U>
-void* functionAddress(std::function<T(U...)> f) {
-    typedef T(fnType)(U...);
-    fnType **fnPtr = f.template target<fnType*>();
-    return reinterpret_cast<void*>(*fnPtr);
-}
-
-} // namespace
-
-
 void FrameController::subscribeOnCurrentFrame(OnCurrentFrameReady notifyFunc, void *ctx, bool notifyOnce)
 {
     if (notifyOnce) {
@@ -427,7 +456,7 @@ void FrameController::unsubscribeOnCurrentFrame(FrameController::OnCurrentFrameR
 {
     const std::lock_guard<std::mutex> lock(m_listenerCurrentFrameMutex);
     for (auto it = m_currentFrameListener.begin(); it != m_currentFrameListener.end();) {
-        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+        if (ctx == std::get<0>(*it) && CppTools::functionAddress(notifyFunc) == CppTools::functionAddress(std::get<1>(*it))) {
             it = m_currentFrameListener.erase(it);
         }
         else {
@@ -446,7 +475,7 @@ void FrameController::unsubscribeOnDetection(FrameController::OnDetect notifyFun
 {
     const std::lock_guard<std::mutex> lock(m_listenerDetectionMutex);
     for (auto it = m_detectListener.begin(); it != m_detectListener.end();) {
-        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+        if (ctx == std::get<0>(*it) && CppTools::functionAddress(notifyFunc) == CppTools::functionAddress(std::get<1>(*it))) {
             it = m_detectListener.erase(it);
         }
         else {
@@ -465,7 +494,7 @@ void FrameController::unsubscribeOnDetectionVideoReady(FrameController::OnVideoR
 {
     const std::lock_guard<std::mutex> lock(m_listenerVideoReadyMutex);
     for (auto it = m_videoReadyListener.begin(); it != m_videoReadyListener.end();) {
-        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+        if (ctx == std::get<0>(*it) && CppTools::functionAddress(notifyFunc) == CppTools::functionAddress(std::get<1>(*it))) {
             it = m_videoReadyListener.erase(it);
         }
         else {
@@ -482,7 +511,7 @@ void FrameController::subscribeOnDie(FrameController::OnDie notifyFunc, void *ct
 void FrameController::unsubscribeOnDie(FrameController::OnDie notifyFunc, void *ctx)
 {
     for (auto it = m_dieListener.begin(); it != m_dieListener.end();) {
-        if (ctx == std::get<0>(*it) && functionAddress(notifyFunc) == functionAddress(std::get<1>(*it))) {
+        if (ctx == std::get<0>(*it) && CppTools::functionAddress(notifyFunc) == CppTools::functionAddress(std::get<1>(*it))) {
             it = m_dieListener.erase(it);
         }
         else {
