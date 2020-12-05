@@ -5,6 +5,7 @@
 #include <set>
 #include <unordered_map>
 #include "Frame.h"
+#include "Config.h"
 
 struct network;
 
@@ -29,11 +30,7 @@ public:
         FrameDescr descr;
     };
 
-    Detector(const std::string& netConfigFilePath,
-             const std::string& weightsFilePath,
-             const std::string& labelsFilePath,
-             const std::string& expectedLabelsFilePath,
-             float netThreshold);
+    Detector(const Config& cfg);
     ~Detector();
 
     ///

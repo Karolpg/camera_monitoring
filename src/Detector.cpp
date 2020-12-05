@@ -12,13 +12,19 @@
 #include <array>
 #include <algorithm>
 
-Detector::Detector(const std::string& netConfigFilePath,
-                   const std::string& weightsFilePath,
-                   const std::string& labelsFilePath,
-                   const std::string& expectedLabelsFilePath,
-                   float netThreshold)
-    : m_netThreshold(netThreshold)
+Detector::Detector(const Config& cfg)
+    : m_netThreshold(cfg.getValue("probabilityThreshold", 0.1f))
 {
+    const std::string& netConfigFilePath      = cfg.getValue("darknetCfgFilePath");
+    const std::string& weightsFilePath        = cfg.getValue("darknetWeightsFilePath");
+    const std::string& labelsFilePath         = cfg.getValue("darknetOutLabelsFilePath");
+    const std::string& expectedLabelsFilePath = cfg.getValue("validLabelsFilePath");
+
+#ifdef GPU
+    gpu_index = cfg.getValue("detector_gpu_idx", 0);
+    cl_set_device(gpu_index);
+#endif
+
     // I have no idea why someone assumed to provide file path as non const pointer!?
     m_net = load_network(const_cast<char*>(netConfigFilePath.c_str()), const_cast<char*>(weightsFilePath.c_str()), 0);
     if (!m_net) {
@@ -130,15 +136,21 @@ bool Detector::detect()
     //    save_image(im, "/tmp/predictions1");
     //}
 
+    //auto beginPrediction = std::chrono::steady_clock::now();
+
     network_predict(m_net, m_netInput.data());
+
+    //std::chrono::duration<double> predictionTime = std::chrono::steady_clock::now() - beginPrediction;
+    //std::cout << "Prediction time: " << predictionTime.count() << "[s]\n";
 
     int nboxes = 0;
     float hier = 0.5f;
     int *map = nullptr;
     int relative = 1;
+
     detection *dets = get_network_boxes(m_net, static_cast<int>(m_inImage.descr.width), static_cast<int>(m_inImage.descr.height), m_netThreshold, hier, map, relative, &nboxes);
 
-    const layer& lastLayer = m_net->layers[m_net->n-1];
+    //const layer& lastLayer = m_net->layers[m_net->n-1];
 
     for (int i = 0; i < nboxes; ++i) {
         for(auto expectedLabel : m_expectedLabelColors){

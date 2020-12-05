@@ -20,11 +20,7 @@ int main(int argc, char *argv[])
     cfg.insertFromFile(configFilePath);
 
     std::shared_ptr<Detector> yoloDetector = std::shared_ptr<Detector>(
-                new Detector(cfg.getValue("darknetCfgFilePath"),
-                             cfg.getValue("darknetWeightsFilePath"),
-                             cfg.getValue("darknetOutLabelsFilePath"),
-                             cfg.getValue("validLabelsFilePath"),
-                             cfg.getValue("probabilityThreshold", 0.1f)));
+                new Detector(cfg));
 
     VideoGrabber videoGrabber(cfg);
     videoGrabber.getFrameController().setDetector(yoloDetector);

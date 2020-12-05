@@ -39,8 +39,8 @@ set(SOURCES src/main.cpp
 add_executable(${TARGET_NAME} ${SOURCES})
 
 find_package(PNG REQUIRED)
-find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
-#find_package(darknet_opencl REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
+#find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
+find_package(darknet_opencl REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
 find_package(OpenMP)
 find_package(CURL REQUIRED)
 
@@ -57,8 +57,8 @@ target_link_libraries(${TARGET_NAME} gstreamer-1.0
                                      #gstbase-1.0
                                      pthread
                                      PNG::PNG
-                                     darknet::darknet
-                                     #darknet_ocl::darknet_ocl
+                                     #darknet::darknet
+                                     darknet_ocl::darknet_ocl
                                      OpenMP::OpenMP_CXX
                                      CURL::libcurl)
 
