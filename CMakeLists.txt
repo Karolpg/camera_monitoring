@@ -38,12 +38,39 @@ set(SOURCES src/main.cpp
 
 add_executable(${TARGET_NAME} ${SOURCES})
 
+##################################### PNG
 find_package(PNG REQUIRED)
-#find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
-find_package(darknet_opencl REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
-find_package(OpenMP)
-find_package(CURL REQUIRED)
+if (NOT PNG_FOUND)
+    message(FATAL_ERROR "Please install: sudo apt install libpng-dev")
+endif()
 
+##################################### Darknet
+set(darknetType gpu) #choose from (normal, gpu, opencl)
+set(darknetProj )
+if("${darknetType}" STREQUAL "gpu")
+    find_package(darknet_gpu REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
+    set(darknetProj darknet_gpu::darknet_gpu)
+
+elseif("${darknetType}" STREQUAL "opencl")
+    find_package(darknet_opencl REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
+    set(darknetProj darknet_ocl::darknet_ocl)
+
+else()
+    find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
+    set(darknetProj darknet::darknet)
+
+endif()
+
+##################################### OpenMP
+find_package(OpenMP)
+
+##################################### CURL
+find_package(CURL REQUIRED)
+if (NOT CURL_FOUND)
+    message(FATAL_ERROR "Please install: sudo apt install libcurl4-openssl-dev")
+endif()
+
+##################################### RapidJSON
 find_package(RapidJSON)
 if (NOT RapidJSON_FOUND)
     message(FATAL_ERROR "Please install: sudo apt install rapidjson-dev")
@@ -57,14 +84,13 @@ target_link_libraries(${TARGET_NAME} gstreamer-1.0
                                      #gstbase-1.0
                                      pthread
                                      PNG::PNG
-                                     #darknet::darknet
-                                     darknet_ocl::darknet_ocl
+                                     ${darknetProj}
                                      OpenMP::OpenMP_CXX
                                      CURL::libcurl)
 
 target_include_directories(${TARGET_NAME} PRIVATE /usr/include/gstreamer-1.0 
                                                   /usr/include/glib-2.0 
-                                                  /usr/lib/x86_64-linux-gnu/glib-2.0/include
+                                                  /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu/glib-2.0/include
                                                   )
 
 target_compile_options(${TARGET_NAME} PRIVATE -fpermissive)

@@ -20,10 +20,12 @@ Detector::Detector(const Config& cfg)
     const std::string& labelsFilePath         = cfg.getValue("darknetOutLabelsFilePath");
     const std::string& expectedLabelsFilePath = cfg.getValue("validLabelsFilePath");
 
-#ifdef GPU
+#if defined(GPU) && GPU > 0
     gpu_index = cfg.getValue("detector_gpu_idx", 0);
-    cl_set_device(gpu_index);
-#endif
+    #if defined(OCL) && OCL > 0
+        cl_set_device(gpu_index);
+    #endif // defined(OCL) && OCL > 0
+#endif // defined(GPU) && GPU > 0
 
     // I have no idea why someone assumed to provide file path as non const pointer!?
     m_net = load_network(const_cast<char*>(netConfigFilePath.c_str()), const_cast<char*>(weightsFilePath.c_str()), 0);
@@ -150,12 +152,10 @@ bool Detector::detect()
 
     detection *dets = get_network_boxes(m_net, static_cast<int>(m_inImage.descr.width), static_cast<int>(m_inImage.descr.height), m_netThreshold, hier, map, relative, &nboxes);
 
-    //const layer& lastLayer = m_net->layers[m_net->n-1];
-
     for (int i = 0; i < nboxes; ++i) {
         for(auto expectedLabel : m_expectedLabelColors){
             uint32_t objClass = expectedLabel.first;
-            assert(static_cast<int>(objClass) < lastLayer.classes);
+            assert(static_cast<int>(objClass) < m_net->layers[m_net->n-1].classes); // const layer& lastLayer = m_net->layers[m_net->n-1];
             if (dets[i].prob[objClass] > m_netThreshold) {
                m_lastDetections.push_back({objClass,
                                            m_labels[objClass],

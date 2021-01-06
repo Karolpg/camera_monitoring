@@ -5,7 +5,7 @@
 
 namespace PngTools {
 
-const uint32_t PNG_HEADER_SIZE = sizeof(png_struct) + sizeof(png_info);
+const uint32_t PNG_HEADER_SIZE = 256; // 1x1 pixel img takes 186 bytes
 
 // Taken from https://gist.github.com/niw/5963798
 
