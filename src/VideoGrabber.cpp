@@ -3,6 +3,10 @@
 #include <iostream>
 #include <assert.h>
 #include <string>
+#include <array>
+#include <stdio.h>
+
+const std::string VideoGrabber::s_defaultPipelineCmd = "uridecodebin uri=%s ! videoconvert ! appsink name=mysink";
 
 static GstFlowReturn onNewVideoSample(GstElement *sink, void *ctx)
 {
@@ -13,16 +17,21 @@ static GstFlowReturn onNewVideoSample(GstElement *sink, void *ctx)
 
 VideoGrabber::VideoGrabber(const Config &cfg)
     : m_uri(cfg.getValue("cameraUrl"))
+    , m_pipelineCmd(cfg.getValue("gstreamerCmd", s_defaultPipelineCmd))
     , m_frameController(cfg)
 {
     // Initialize GStreamer
     gst_init (nullptr, nullptr);
 
     // Build the pipeline
-    std::string pipelineStr = std::string("uridecodebin uri=") + m_uri + " ! videoconvert ! appsink name=mysink";
-    m_pipeline = gst_parse_launch(pipelineStr.c_str(), nullptr);
+    if (m_pipelineCmd == s_defaultPipelineCmd) {
+        std::array<char, 1024> buffer;
+        snprintf(buffer.data(), buffer.size(), s_defaultPipelineCmd.data(), m_uri.data());
+        m_pipelineCmd = buffer.data();
+    }
+    m_pipeline = gst_parse_launch(m_pipelineCmd.c_str(), nullptr);
     if (!m_pipeline) {
-        std::cerr << "VideoGrabber: can't create pipeline with string: " << pipelineStr << "\n";
+        std::cerr << "VideoGrabber: can't create pipeline with string: " << m_pipelineCmd << "\n";
         return;
     }
 
@@ -137,7 +146,7 @@ int VideoGrabber::onNewVideoSample(GstElement *sink)
                         || height != m_frameController.getHeight()
                         || m_componentOut.componentCount != m_frameController.getComponents()) {
                     printf("Dim %dx%d Format:%s Fps:%lf\n", width, height, m_componentOut.componentStr.c_str(), fps);
-                    double timeLength = 3.0; // [s]
+                    double timeLength = 1.5; // [s]
                     m_frameController.setBufferParams(timeLength, fps, width, height, m_componentOut.componentCount);
                 }
 

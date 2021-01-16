@@ -32,6 +32,8 @@ class VideoGrabber {
   private:
 
     std::string m_uri;
+    std::string m_pipelineCmd;
+    static const std::string s_defaultPipelineCmd;
     GstElement* m_pipeline = nullptr;
     GstElement* m_appSink = nullptr;
     GstBus *m_bus = nullptr;
