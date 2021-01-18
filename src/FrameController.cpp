@@ -3,6 +3,7 @@
 #include "VideoRecorder.h"
 #include "DirUtils.h"
 #include "CppTools.h"
+#include "ProcessUtils.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -115,6 +116,15 @@ void FrameController::setDetector(const std::shared_ptr<Detector> &detector)
 
 void FrameController::addFrame(const uint8_t* data)
 {
+    //static auto memCheckStart = std::chrono::steady_clock::now();
+    //std::chrono::duration<double> sinceLastCheck = std::chrono::steady_clock::now() - memCheckStart;
+    //if (sinceLastCheck.count() > 3.0) {
+    //    std::cout << "Process mem usage: " + ProcessUtils::humanReadableSize(ProcessUtils::currentProcessSize()) + "\n";
+    //    std::cout << ProcessUtils::memoryInfo() + "\n";
+    //    std::cout.flush();
+    //    memCheckStart = std::chrono::steady_clock::now();
+    //}
+
     assert(data);
     //uint64_t prevFrameNr = m_frameCtr;
     //uint32_t prevFrameInBuffer = static_cast<uint32_t>(prevFrameNr % m_cyclicBuffer.size());
@@ -214,6 +224,8 @@ void FrameController::detect()
             ss << "Detected: [" << dr.classId << "] " << dr.label << " " << dr.probablity
                << " (" << dr.box.x << "x" << dr.box.y << ", " << dr.box.w << "x" << dr.box.h <<  "\n";
         }
+        ss << "Process mem usage: " << ProcessUtils::humanReadableSize(ProcessUtils::currentProcessSize()) << "\n";
+        ss << ProcessUtils::memoryInfo() + "\n";
         std::string info = ss.str();
         std::cout << info;
 
@@ -263,6 +275,9 @@ void FrameController::detect()
                                detectedInImg.descr.width, detectedInImg.descr.height, detectedInImg.descr.components, detectedInImg.frame.data.data());
 
         std::string info = "Movement detected without recognition on: " + detectedFrameFilePath;
+        info += "\nProcess mem usage: " + ProcessUtils::humanReadableSize(ProcessUtils::currentProcessSize());
+        info += "\n" + ProcessUtils::memoryInfo() + "\n";
+        std::cout << info;
         notifyAboutDetection(info, detectedInImg.frame, detectedInImg.descr);
     }
     std::cout.flush();

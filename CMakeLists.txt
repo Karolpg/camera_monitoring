@@ -24,6 +24,8 @@ set(SOURCES src/main.cpp
             src/MovementAnalyzer.h
             src/PngTools.cpp
             src/PngTools.h
+            src/ProcessUtils.cpp
+            src/ProcessUtils.h
             src/SlackCommunication.cpp
             src/SlackCommunication.h
             src/SlackFileTypes.cpp
