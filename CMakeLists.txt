@@ -33,6 +33,8 @@ set(SOURCES src/main.cpp
             src/SlackSubscriber.cpp
             src/SlackSubscriber.h
             src/Timer.h
+            src/TimeUtils.cpp
+            src/TimeUtils.h
             src/VideoGrabber.cpp
             src/VideoGrabber.h
             src/VideoRecorder.cpp
