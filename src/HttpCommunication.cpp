@@ -9,7 +9,7 @@ class CurlList {
 public:
     ~CurlList() { curl_slist_free_all(m_list); }
 
-    void add(std::string header) { m_list = curl_slist_append(m_list, header.c_str()); }
+    void add(const std::string& header) { m_list = curl_slist_append(m_list, header.c_str()); }
 
     curl_slist *listObj() const { return m_list; }
 
@@ -197,7 +197,9 @@ HttpCommunication::~HttpCommunication()
 }
 
 
-HttpCommunication::Response HttpCommunication::get()
+HttpCommunication::Response HttpCommunication::get(const std::string& address,
+                                                   const HeaderList &headers,
+                                                   const std::string& data)
 {
     //std::cout << "--------------------------------------------------------------------------GET\n";
     //std::cout.flush();
@@ -211,8 +213,27 @@ HttpCommunication::Response HttpCommunication::get()
     if (auto response = setMsgType(MSG_TYPE::GET); response.errorMsg.has_value()) {
         return response;
     }
-    SET_OPT_HTTP_COM(CURLOPT_NOBODY, 0L); // TODO check it
 
+    SET_OPT_HTTP_COM(CURLOPT_URL, address.c_str());
+    //SET_OPT_HTTP_COM(CURLOPT_NOBODY, 0L);
+
+
+    CurlList headerObj;
+    if (!headers.empty()) {
+        for (const auto& h : headers) {
+            headerObj.add(h.c_str());
+        }
+        SET_OPT_HTTP_COM(CURLOPT_HTTPHEADER, headerObj.listObj());
+    }
+
+    if (!data.empty()) {
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDSIZE, data.size());
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDS, data.data());
+    }
+    else {
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDSIZE, 0);
+        SET_OPT_HTTP_COM(CURLOPT_POSTFIELDS, static_cast<const char*>(nullptr));
+    }
 
     return executeRequest();
 }
@@ -287,6 +308,23 @@ HttpCommunication::Response HttpCommunication::put()
     return executeRequest();
 }
 
+std::string HttpCommunication::urlEncode(const std::string &str)
+{
+    char *output = curl_easy_escape(m_easyhandle, str.c_str(), static_cast<int>(str.size()));
+    std::string result = output;
+    curl_free(output);
+    return result;
+}
+
+std::string HttpCommunication::urlDecode(const std::string &str)
+{
+    int outLen = 0;
+    char *output = curl_easy_unescape(m_easyhandle, str.c_str(), static_cast<int>(str.size()), &outLen);
+    std::string result(output, static_cast<size_t>(outLen));
+    curl_free(output);
+    return result;
+}
+
 HttpCommunication::Response HttpCommunication::setMsgType(HttpCommunication::MSG_TYPE type)
 {
     switch(type) {
@@ -321,8 +359,10 @@ HttpCommunication::Response HttpCommunication::executeRequest()
 
     if (CURLcode performResult = curl_easy_perform(m_easyhandle); performResult != CURLE_OK) {
         std::cerr << "curl_easy_perform Error: " << performResult << " " << curlCodeToStr(performResult) << "\n" << curl_easy_strerror(performResult) << "\n";
+        curl_easy_reset(m_easyhandle);
         return { {}, {std::string("Error: ") + curlCodeToStr(performResult) + " " + curl_easy_strerror(performResult)}};
     }
+    curl_easy_reset(m_easyhandle);
     return {responseDataString, {}};
 }
 

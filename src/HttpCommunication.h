@@ -32,9 +32,12 @@ public:
     HttpCommunication();
     ~HttpCommunication();
 
-    Response get();
+    Response get(const std::string& address, const HeaderList &headers, const std::string& data = std::string());
     Response post(const std::string &address, const HeaderList &headers, const std::string &data, const Mimes &mimes = Mimes());
     Response put();
+
+    std::string urlEncode(const std::string &str);
+    std::string urlDecode(const std::string &str);
 
 private:
     enum class MSG_TYPE {
