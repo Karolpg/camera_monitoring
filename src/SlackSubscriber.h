@@ -7,6 +7,9 @@
 
 #include <thread>
 #include <mutex>
+#include <atomic>
+#include <chrono>
+#include <optional>
 #include <condition_variable>
 
 class SlackSubscriber
@@ -25,6 +28,22 @@ private:
         FrameReady,
         Detection,
         VideoReady,
+        CheckMsg,
+        GatherMessages,
+        DeleteMessages
+    };
+
+    struct MessageInfo {
+        std::string channelId;
+        std::string timeStamp;
+    };
+
+    struct DeleteMessagesRequest {
+        std::optional<bool> all = false; // #1 - try to remove from newstTimePoint - to the end of available
+        std::optional<uint32_t> count;   // #2 - try to remove form newstTimePoint - to count
+        std::optional<std::chrono::system_clock::time_point> oldestTimePoint; // #3 - try to remove form newstTimePoint - oldestTimePoint
+        std::chrono::system_clock::time_point newestTimePoint;
+        std::string channelId;
     };
 
 private:
@@ -58,6 +77,12 @@ private:
     std::mutex m_videoQueueMtx;
     void sendVideo();
 
+    void scheduleMsgChecking();
+    void checkIncomingMessage();
+
+    void gatheredMessagesToDelete();
+    void deleteGathered();
+
 private:
     const Config &m_cfg;
     FrameController* m_frameControler = nullptr;
@@ -72,4 +97,12 @@ private:
     volatile bool m_runThread = true;
 
     Timer<std::function<void()>> m_periodicFrameSender;
+
+
+    Timer<std::function<void()>> m_periodicMessageChecker;
+    std::atomic_bool m_allowScheduleCheckAgain; // blocking to add another check to queue in case we don't have time to proces previous request
+    std::vector<std::chrono::system_clock::time_point> m_lastCheckedTimeStamp; // we don't want to process old request
+
+    std::unique_ptr<DeleteMessagesRequest> m_deleteRequest;
+    std::list<MessageInfo> m_messagesToDelete;
 };

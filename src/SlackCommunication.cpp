@@ -41,6 +41,17 @@ std::string getError(const rapidjson::Document& jsonDoc)
     return errorIt->value.GetString();
 }
 
+template<typename Container>
+std::string joinName(const Container &container, const std::string &separator = ",")
+{
+    std::string result = container.empty() ? std::string() : container.front().name;
+    for (uint32_t i = 1; i < container.size(); ++i) {
+        result += separator;
+        result += container[i].name;
+    }
+    return result;
+}
+
 std::string joinString(const std::vector<std::string> &stringList, const std::string &separator = ",")
 {
     std::string result = stringList.empty() ? std::string() : stringList[0];
@@ -197,7 +208,7 @@ SlackCommunication::JoinChannelAnswer SlackCommunication::joinChannel(const std:
 }
 */
 
-SlackCommunication::GeneralAnswer SlackCommunication::listConversations(std::vector<SlackCommunication::Channel> &channels)
+SlackCommunication::GeneralAnswer SlackCommunication::listConversations(SlackCommunication::Channels &channels)
 {
     auto respond = m_http.get(m_conversationListAdr, m_urlEncodedHeaders);
     if (respond.errorMsg.has_value()) {
@@ -372,7 +383,7 @@ bool SlackCommunication::sendWelcomMessage(const std::string& channelName)
     return false;
 }
 
-SlackCommunication::SendAnswer SlackCommunication::sendFile(const Channels &channelNames, const std::string &filepath, SlackFileType fileType)
+SlackCommunication::SendAnswer SlackCommunication::sendFile(const Channels &channels, const std::string &filepath, SlackFileType fileType)
 {
     // token            Required
     // channels         Optional   Comma-separated list of channel names or IDs where the file will be shared.
@@ -384,7 +395,7 @@ SlackCommunication::SendAnswer SlackCommunication::sendFile(const Channels &chan
     // thread_ts        Optional   Provide another message's ts value to upload this file as a reply. Never use a reply's ts value; use its parent instead.
     // title            Optional   Title of file.
 
-    std::string channels = channelNames.empty() ? "general" : joinString(channelNames);
+    std::string channelsStr = channels.empty() ? "general" : joinName(channels);
 
     HttpCommunication::Mimes mimes;
     HttpCommunication::Mime file;
@@ -397,7 +408,7 @@ SlackCommunication::SendAnswer SlackCommunication::sendFile(const Channels &chan
 
     HttpCommunication::Mime channelsMime;
     channelsMime.name = "channels";
-    channelsMime.data = HttpCommunication::BufferData{ channels.data(), channels.size() };
+    channelsMime.data = HttpCommunication::BufferData{ channelsStr.data(), channelsStr.size() };
     mimes.push_back(std::move(channelsMime));
 
     auto respond = m_http.post(m_fileUploadAdr, m_multipartHeaders, "", mimes);
@@ -426,12 +437,12 @@ SlackCommunication::SendAnswer SlackCommunication::sendFile(const Channels &chan
 }
 
 
-SlackCommunication::SendAnswer SlackCommunication::sendFile(const SlackCommunication::Channels &channelNames, const std::vector<char> &data, const std::string &filename, SlackFileType fileType)
+SlackCommunication::SendAnswer SlackCommunication::sendFile(const SlackCommunication::Channels &channels, const std::vector<char> &data, const std::string &filename, SlackFileType fileType)
 {
-    return sendFile(channelNames, data.data(), data.size(), filename, fileType);
+    return sendFile(channels, data.data(), data.size(), filename, fileType);
 }
 
-SlackCommunication::SendAnswer SlackCommunication::sendFile(const SlackCommunication::Channels &channelNames, const char *data, size_t size, const std::string &filename, SlackFileType fileType)
+SlackCommunication::SendAnswer SlackCommunication::sendFile(const SlackCommunication::Channels &channels, const char *data, size_t size, const std::string &filename, SlackFileType fileType)
 {
     // token            Required
     // channels         Optional   Comma-separated list of channel names or IDs where the file will be shared.
@@ -443,7 +454,7 @@ SlackCommunication::SendAnswer SlackCommunication::sendFile(const SlackCommunica
     // thread_ts        Optional   Provide another message's ts value to upload this file as a reply. Never use a reply's ts value; use its parent instead.
     // title            Optional   Title of file.
 
-    std::string channels = channelNames.empty() ? "general" : joinString(channelNames);
+    std::string channelsStr = channels.empty() ? "general" : joinName(channels);
 
     HttpCommunication::Mimes mimes;
     HttpCommunication::Mime file;
@@ -455,7 +466,7 @@ SlackCommunication::SendAnswer SlackCommunication::sendFile(const SlackCommunica
 
     HttpCommunication::Mime channelsMime;
     channelsMime.name = "channels";
-    channelsMime.data =  HttpCommunication::BufferData{ channels.data(), channels.size() };
+    channelsMime.data =  HttpCommunication::BufferData{ channelsStr.data(), channelsStr.size() };
     mimes.push_back(std::move(channelsMime));
 
     auto respond = m_http.post(m_fileUploadAdr, m_multipartHeaders, "", mimes);
@@ -601,6 +612,10 @@ SlackCommunication::GeneralAnswer SlackCommunication::listChannelMessage(std::ve
     }
     assert(jsonDoc.IsObject());
     if (!isTrue("ok", jsonDoc)) {
+        std::string error = getError(jsonDoc);
+        if (error == "ratelimited") {
+            return GeneralAnswer::RATE_LIMITED;
+        }
         std::cerr << "Server respond is: " << serverRespond << "\n";
         return GeneralAnswer::FAIL;
     }

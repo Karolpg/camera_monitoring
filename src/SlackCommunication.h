@@ -13,8 +13,6 @@ public:
     SlackCommunication(const std::string& address, const std::string& bearerId);
     ~SlackCommunication();
 
-    using Channels = std::vector<std::string>;
-
     enum class GeneralAnswer
     {
         SUCCESS,
@@ -32,9 +30,10 @@ public:
         std::string id;
         std::string name;
     };
+    using Channels = std::vector<Channel>;
 
     JoinChannelAnswer joinChannel(const std::string& channelName, std::string* channelId = nullptr);
-    GeneralAnswer listConversations(std::vector<Channel>& channels);
+    GeneralAnswer listConversations(Channels& channels);
     JoinChannelAnswer joinConversation(const std::string& channelId);
 
 
@@ -58,11 +57,11 @@ public:
 
     SendAnswer sendMessage(const std::string& channelName, const std::string& text);
     bool sendWelcomMessage(const std::string& channelName);
-    SendAnswer sendFile(const Channels& channelNames, const std::string& filepath, SlackFileType fileType = SlackFileType::autoType);
-    SendAnswer sendFile(const Channels& channelNames, const char* data, size_t size, const std::string& filename, SlackFileType fileType);
-    SendAnswer sendFile(const Channels& channelNames, const std::vector<char>& data, const std::string& filename, SlackFileType fileType);
+    SendAnswer sendFile(const Channels& channels, const std::string& filepath, SlackFileType fileType = SlackFileType::autoType);
+    SendAnswer sendFile(const Channels& channels, const char* data, size_t size, const std::string& filename, SlackFileType fileType);
+    SendAnswer sendFile(const Channels& channels, const std::vector<char>& data, const std::string& filename, SlackFileType fileType);
 
-    GeneralAnswer deleteMessageChannel(const std::string& channelName, const std::string& timeStamp);
+    GeneralAnswer deleteMessageChannel(const std::string& channelId, const std::string& timeStamp);
 
     GeneralAnswer listChannelMessage(std::vector<Message>& messages,
                                      const std::string& channelId,
