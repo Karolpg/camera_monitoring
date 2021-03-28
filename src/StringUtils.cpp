@@ -14,20 +14,28 @@
 // WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#pragma once
+#include "StringUtils.h"
+#include <cstring>
 
-#include <string>
+namespace StringUtils {
 
-namespace DirUtils {
+bool starts_with(const std::string& baseStr, const char* prefix, size_t prefixLength)
+{
+    prefixLength = prefixLength == 0 ? std::strlen(prefix) : prefixLength;
+    if (baseStr.length() < prefixLength) {
+        return false;
+    }
+    for (size_t i = 0; i < prefixLength; ++i) {
+        if (baseStr[i] != prefix[i]) {
+            return false;
+        }
+    }
+    return true;
+}
 
-std::string cleanPath(const std::string& path);
+bool starts_with(const std::string& baseStr, const std::string& prefix)
+{
+    return starts_with(baseStr, prefix.data(), prefix.length());
+}
 
-bool isDir(const std::string& path);
-bool makePath(const std::string& path, uint32_t mode = 0755);
-
-// function name braking because of hope to be copatible with STD soon (and replace with):
-// https://en.cppreference.com/w/cpp/filesystem/file_size
-// #include <filesystem> GCC 8.0 needed
-size_t file_size(const std::string& filePath);
-
-} // namespace DirUtils
+} // namespace StringUtils

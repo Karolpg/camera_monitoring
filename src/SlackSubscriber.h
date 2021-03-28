@@ -20,8 +20,8 @@
 #include "FrameController.h"
 #include "Config.h"
 #include "Timer.h"
+#include "WorkerThread.h"
 
-#include <thread>
 #include <mutex>
 #include <atomic>
 #include <chrono>
@@ -93,32 +93,23 @@ private:
     std::mutex m_videoQueueMtx;
     void sendVideo();
 
-    void scheduleMsgChecking();
-    void checkIncomingMessage();
-
-    void gatheredMessagesToDelete();
-    void deleteGathered();
-
-private:
-    const Config &m_cfg;
-    FrameController* m_frameControler = nullptr;
-    std::unique_ptr<SlackCommunication> m_slack;
-    SlackCommunication::Channels m_notifyChannels;
-    std::vector<char> m_memoryPngFile;
-
-    std::thread m_thread;
-    std::mutex m_queueMtx;
-    std::condition_variable m_queueCv;
-    std::queue<Task> m_queueTask;
-    volatile bool m_runThread = true;
-
-    Timer<std::function<void()>> m_periodicFrameSender;
-
-
-    Timer<std::function<void()>> m_periodicMessageChecker;
-    std::atomic_bool m_allowScheduleCheckAgain; // blocking to add another check to queue in case we don't have time to proces previous request
     std::vector<std::chrono::system_clock::time_point> m_lastCheckedTimeStamp; // we don't want to process old request
+    void checkIncomingMessage();
 
     std::unique_ptr<DeleteMessagesRequest> m_deleteRequest;
     std::list<MessageInfo> m_messagesToDelete;
+    void gatheredMessagesToDelete();
+    void deleteGathered();
+
+    void initSlack();
+private:
+    const Config &m_cfg;
+    FrameController* m_frameControler = nullptr;
+    SlackCommunication::Channels m_notifyChannels;
+    std::vector<char> m_memoryPngFile;
+
+    std::unique_ptr<SlackCommunication> m_slack; // do not use slack without Job in m_slackThread
+    WorkerThread m_slackThread;
+
+    std::shared_ptr<Job> m_sendPeriodicFrameJob;
 };

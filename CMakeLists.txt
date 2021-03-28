@@ -49,13 +49,18 @@ set(SOURCES src/main.cpp
             src/SlackFileTypes.h
             src/SlackSubscriber.cpp
             src/SlackSubscriber.h
+            src/StringUtils.cpp
+            src/StringUtils.h
             src/Timer.h
             src/TimeUtils.cpp
             src/TimeUtils.h
             src/VideoGrabber.cpp
             src/VideoGrabber.h
             src/VideoRecorder.cpp
-            src/VideoRecorder.h)
+            src/VideoRecorder.h
+            src/WorkerThread.cpp
+            src/WorkerThread.h
+            )
 
 add_executable(${TARGET_NAME} ${SOURCES})
 

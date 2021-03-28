@@ -17,6 +17,9 @@
 #include "TimeUtils.h"
 #include <sstream>
 #include <array>
+#include <regex>
+#include <string>
+#include <assert.h>
 
 namespace TimeUtils {
 
@@ -176,10 +179,62 @@ DateTime timePointToDateTime(std::chrono::system_clock::time_point tp)
 std::string timePointToHumanReadable(std::chrono::system_clock::time_point tp)
 {
     DateTime dt = timePointToDateTime(tp);
+    return dateTimeToHumanReadable(dt);
+}
+
+std::string dateTimeToHumanReadable(const DateTime& dt)
+{
     std::array<char, 1024> buf = {0};
     snprintf(buf.data(), buf.size(), "%d.%02d.%02d %02d:%02d:%02d.%03d%03d", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.milisec, dt.microsec);
     return std::string(buf.data());
 }
 
+bool parseDateTime(const std::string& text, DateTime& dateTime)
+{
+    std::regex regex("(\\d+)");
+    auto start = std::sregex_iterator(text.begin(), text.end(), regex);
+    auto end = std::sregex_iterator();
+    auto lenFound = std::distance(start, end);
+
+    if (lenFound <= 0)
+    {
+        return false;
+    }
+
+    std::vector<uint32_t> results(8, 0);
+    uint32_t ctr = 0;
+    for (std::sregex_iterator i = start; i != end; ++i) {
+        std::smatch match = *i;
+        std::string strValue = match.str();
+        int value = std::stoi(strValue);
+
+        assert(value >= 0 && "Regex should not parse minus as it could be a separator. Date components should always be positive.");
+
+        results[ctr++] = static_cast<uint32_t>(value);
+        if (ctr >= results.size()) {
+            break;
+        }
+    }
+
+    dateTime.year     = results[0];
+    dateTime.month    = results[1];
+    dateTime.day      = results[2];
+    dateTime.hour     = results[3];
+    dateTime.minute   = results[4];
+    dateTime.second   = results[5];
+    dateTime.milisec  = results[6];
+    dateTime.microsec = results[7];
+
+    if (ctr == 7 && dateTime.milisec > 1000 && dateTime.milisec < 1000000) {
+        auto value = std::to_string(dateTime.milisec);
+        auto mili = value.substr(0, 3);
+        auto micro = value.substr(3);
+        micro = micro.length() == 1 ? micro + "00" : (micro.length() == 2 ? micro + "0" : micro);
+        dateTime.milisec = static_cast<uint32_t>(std::stoi(mili));
+        dateTime.microsec = static_cast<uint32_t>(std::stoi(micro));
+    }
+
+    return true;
+}
 
 } // namespace TimeUtils

@@ -39,5 +39,20 @@ std::chrono::system_clock::time_point createTimePoint(uint32_t year, uint32_t mo
 
 DateTime timePointToDateTime(std::chrono::system_clock::time_point tp);
 std::string timePointToHumanReadable(std::chrono::system_clock::time_point tp);
+std::string dateTimeToHumanReadable(const DateTime& dt);
+
+/// @param text - text should be in format: year{separator}month{separator}day...{separator}microseconds
+///               text is parsed with the regex, searching digits so separator can't be empty or number
+///               if you provide only one number it will be parsed as year. Then if more numbers: month, hours... order is the same as filds in DateTime structure
+///
+///               if provide, after seconds, only one value and it will be in range 1000:100000 then it will be assumed to be mili and microsecnds provided
+///                    e.g. 1999.01.01 15:00:00'1001 means 100 miliseconds and 100 microseconds
+///               but if you provide more values then this will not be splitted
+///                    e.g. 1999.01.01 15:00:00'1001'555 means 1001 miliseconds and 555 microseconds
+///
+///               time values are not checked measn you can provide 70 seconds or 26 hours
+///
+/// @return true - if any value parsed, false - if no date time component parsed.
+bool parseDateTime(const std::string& text, DateTime& dateTime);
 
 } // namespace TimeUtils

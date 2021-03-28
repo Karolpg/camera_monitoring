@@ -28,16 +28,15 @@ public:
     Timer()
     {
         std::unique_lock<std::mutex> ul(m_waitForTaskMtx);
-        m_isRunning = true;
 
         m_thread = std::thread([this]()
         {
             while(!m_destroy) {
                 {
                     std::unique_lock<std::mutex> ul(m_waitForTaskMtx);
-                    m_isRunning = false;
+                    m_isWaitingForTask = true;
                     m_waitForTask.notify_one(); //notify stop
-                    m_waitForTask.wait(ul, [this] () {return m_isRunning; });
+                    m_waitForTask.wait(ul, [this] () {return !m_isWaitingForTask; });
                 }
                 if (m_destroy) {
                     break;
@@ -46,7 +45,14 @@ public:
                 bool runPeriodic = false;
                 do
                 {
-                    std::this_thread::sleep_for(m_delay);
+                    //std::this_thread::sleep_for(m_delay);
+                    {
+                        std::unique_lock<std::mutex> ul(m_delayMtx);
+                        std::cv_status result = m_delayCv.wait_for(ul, m_delay);
+                        if (result != std::cv_status::timeout) {
+                            break;
+                        }
+                    }
                     m_fun();
                     {
                         std::lock_guard<std::mutex> lg(m_stopMtx);
@@ -58,7 +64,7 @@ public:
             }
         });
 
-        m_waitForTask.wait(ul, [this] () {return !m_isRunning; });
+        m_waitForTask.wait(ul, [this] () { return m_isWaitingForTask; });
         // we want to be sure thread has been started
     }
 
@@ -69,7 +75,7 @@ public:
     {
         stop();
         m_destroy = true;
-        m_isRunning = true;
+        m_isWaitingForTask = false;
         m_waitForTask.notify_all();
         m_thread.join();
     }
@@ -79,7 +85,7 @@ public:
         stop();
         // here we are stopped == thread safe
         m_fun = func;
-        m_isRunning = true;
+        m_isWaitingForTask = false;
         m_runPeriodic = false;
         m_delay = delay;
         m_waitForTask.notify_one();
@@ -90,7 +96,7 @@ public:
         stop();
         // here we are stopped == thread safe
         m_fun = func;
-        m_isRunning = true;
+        m_isWaitingForTask = false;
         m_runPeriodic = true;
         m_delay = delay;
         m_waitForTask.notify_one();
@@ -99,26 +105,29 @@ public:
     void stop()
     {
         std::unique_lock<std::mutex> ul(m_waitForTaskMtx);
-        if (!m_isRunning)
+        if (m_isWaitingForTask)
             return; //already stopped
-
+        m_delayCv.notify_all();
         {
             std::lock_guard<std::mutex> lg(m_stopMtx);
             m_runPeriodic = false;
         }
 
-        m_waitForTask.wait(ul, [this]() { return !m_isRunning; });
+        m_waitForTask.wait(ul, [this]() { return m_isWaitingForTask; });
     }
 private:
     volatile bool m_destroy{false};
     volatile bool m_runPeriodic{false};
-    volatile bool m_isRunning{false};
+    volatile bool m_isWaitingForTask{false};
     Func m_fun;
 
     std::condition_variable m_waitForTask;
     std::mutex m_waitForTaskMtx;
     std::thread m_thread;
+
     std::chrono::microseconds m_delay;
+    std::condition_variable m_delayCv;
+    std::mutex m_delayMtx;
 
     std::mutex m_stopMtx;
 };

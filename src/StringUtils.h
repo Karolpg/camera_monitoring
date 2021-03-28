@@ -18,16 +18,12 @@
 
 #include <string>
 
-namespace DirUtils {
 
-std::string cleanPath(const std::string& path);
+namespace StringUtils {
 
-bool isDir(const std::string& path);
-bool makePath(const std::string& path, uint32_t mode = 0755);
+// braking function naming to be compatible with future C++
+// https://en.cppreference.com/w/cpp/string/basic_string/starts_with
+bool starts_with(const std::string& baseStr, const char* prefix, size_t prefixLength = 0);
+bool starts_with(const std::string& baseStr, const std::string& prefix);
 
-// function name braking because of hope to be copatible with STD soon (and replace with):
-// https://en.cppreference.com/w/cpp/filesystem/file_size
-// #include <filesystem> GCC 8.0 needed
-size_t file_size(const std::string& filePath);
-
-} // namespace DirUtils
+} // namespace StringUtils

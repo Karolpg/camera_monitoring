@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <iostream>
+#include <fstream>
 
 namespace DirUtils {
 
@@ -96,6 +97,19 @@ bool makePath(const std::string &path, uint32_t mode)
         std::cerr << "Can't create dir errno: " << errno << "\n";
     }
     return false;
+}
+
+size_t file_size(const std::string& filePath)
+{
+    std::fstream file;
+    file.open(filePath, std::ios_base::in|std::ios_base::binary);
+    if (!file.is_open()) {
+        return 0;
+    }
+    file.seekg(0, std::ios_base::end);
+    auto result = file.tellg();
+    file.close();
+    return result < 0 ? 0 : size_t(result);
 }
 
 } // namespace DirUtils
