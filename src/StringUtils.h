@@ -26,4 +26,7 @@ namespace StringUtils {
 bool starts_with(const std::string& baseStr, const char* prefix, size_t prefixLength = 0);
 bool starts_with(const std::string& baseStr, const std::string& prefix);
 
+bool ends_with(const std::string& baseStr, const char* suffix, size_t suffixLength = 0);
+bool ends_with(const std::string& baseStr, const std::string& suffix);
+
 } // namespace StringUtils

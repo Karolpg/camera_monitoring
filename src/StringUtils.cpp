@@ -38,4 +38,24 @@ bool starts_with(const std::string& baseStr, const std::string& prefix)
     return starts_with(baseStr, prefix.data(), prefix.length());
 }
 
+bool ends_with(const std::string& baseStr, const char* suffix, size_t suffixLength)
+{
+    suffixLength = suffixLength == 0 ? std::strlen(suffix) : suffixLength;
+    if (baseStr.length() < suffixLength) {
+        return false;
+    }
+    size_t startIdx = baseStr.length() - suffixLength;
+    for (size_t i = 0; i < suffixLength; ++i) {
+        if (baseStr[startIdx + i] != suffix[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ends_with(const std::string& baseStr, const std::string& suffix)
+{
+    return ends_with(baseStr, suffix.data(), suffix.length());
+}
+
 } // namespace StringUtils
