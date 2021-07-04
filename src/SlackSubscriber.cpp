@@ -24,6 +24,7 @@
 #include <fstream>
 #include <cstring>
 #include <assert.h>
+#include <algorithm>
 
 
 SlackSubscriber::SlackSubscriber(const Config &cfg)
@@ -255,6 +256,8 @@ void SlackSubscriber::sendVideo()
 
     //m_slack->sendMessage(m_notifyChannels[0], std::string(u8"Sending: ") + *videoFilePath);
     //m_slack->sendFile(m_notifyChannels, *videoFilePath);
+    //m_slack->sendFile(m_notifyChannels, *videoFilePath, SlackFileType::mpg);
+    //Always send it as binary file!!!
 }
 
 void SlackSubscriber::checkIncomingMessage()
@@ -280,57 +283,104 @@ void SlackSubscriber::checkIncomingMessage()
             continue; // doesn't contain special character at the begining
         }
 
-        if (StringUtils::starts_with(text, "#help", 5)) {
+        #define TEXT_AND_SIZE(txt) txt, sizeof(txt)-1
+
+        if (StringUtils::starts_with(text, TEXT_AND_SIZE("#help"))) {
             static const std::string helpText =
                     "Camera monitoring supports:\n"
                     "  #help \n"
                     "  #giveFrame \n"
-                    "  #delete {last [n], yyyy.mm.dd, all} \n";
+                    "  #delete {last [n], yyyy.mm.dd, all} \n"
+                    "  #listVideo [all]\n"
+                    "  #giveVideo {last, nr n, filename}";
             m_slack->sendMessage(m_notifyChannels[c].name, helpText);
         }
-        else if (StringUtils::starts_with(text, "#giveFrame", 10)) {
+        else if (StringUtils::starts_with(text, TEXT_AND_SIZE("#giveFrame"))) {
             if (m_frameControler) {
                 m_frameControler->subscribeOnCurrentFrame(onCurrentFrameReady, this);
             }
         }
-        else if (StringUtils::starts_with(text, "#delete", 7)) {
+        else if (StringUtils::starts_with(text, TEXT_AND_SIZE("#delete"))) {
             if (m_deleteRequest) {
                 m_slack->sendMessage(m_notifyChannels[c].name, "Currently processing another delete request!");
             }
             else {
-                std::string cmd = text.length() >= 8 ? text.substr(8) : std::string();
-                if (cmd == "all") {
-                    m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
-                    m_deleteRequest->all = true;
-                    m_deleteRequest->newestTimePoint = currentMsgTs;
-                    m_deleteRequest->channelId = m_notifyChannels[c].id;
-                }
-                else if (StringUtils::starts_with(cmd, "last")) {
-                    std::string number = cmd.length() >= 5 ? cmd.substr(5) : std::string();
-                    int num = number.empty() ? 1 : std::stoi(number);
-                    if (num > 0) {
-                        m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
-                        m_deleteRequest->count = static_cast<uint32_t>(num);
-                        m_deleteRequest->newestTimePoint = currentMsgTs;
-                        m_deleteRequest->channelId = m_notifyChannels[c].id;
-                    }
-                }
-                else {
-                    TimeUtils::DateTime dt{0};
-                    if (TimeUtils::parseDateTime(cmd, dt)) {
-                        m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
-                        m_deleteRequest->oldestTimePoint = TimeUtils::createTimePoint(dt.year, dt.month, dt.day, 0, 0, 0);
-                        m_deleteRequest->newestTimePoint = TimeUtils::createTimePoint(dt.year, dt.month, dt.day, 23, 59, 59);
-                        m_deleteRequest->channelId = m_notifyChannels[c].id;
-                    }
-                }
-
-                if (m_deleteRequest) {
-                    std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
-                    m_slackThread.addJob(std::chrono::microseconds(0), gatherMessagesJob);
-                }
+                uint32_t afterDelete = sizeof("#delete"); // null is like space after :)
+                std::string cmd = text.length() >= afterDelete ? text.substr(afterDelete) : std::string();
+                handleDeleteSubCmd(cmd, currentMsgTs, c);
             }
         }
+        else if (StringUtils::starts_with(text, TEXT_AND_SIZE("#listVideo"))) {
+            uint32_t afterListVideo = sizeof("#listVideo"); // null is like space after :)
+            std::string cmd = text.length() >= afterListVideo ? text.substr(afterListVideo) : std::string();
+            handleListVideo(cmd, c);
+        }
+        else if (StringUtils::starts_with(text, TEXT_AND_SIZE("#giveVideo"))) {
+            //TODO finish this functionality
+        }
+        #undef TEXT_AND_SIZE
+    }
+}
+
+void SlackSubscriber::handleListVideo(const std::string& subcmd, size_t channel)
+{
+    std::string videoDirectory = DirUtils::cleanPath(m_cfg.getValue("videoStorePath", "/tmp"));
+    std::vector<std::string> videosList;
+    {
+        auto dirContent = DirUtils::listDir(videoDirectory);
+        const std::string extension = ".mpeg";
+        for (const auto& entry : dirContent) {
+            if (StringUtils::ends_with(entry, extension)) {
+                videosList.push_back(entry);
+            }
+        }
+    }
+    std::sort(videosList.begin(), videosList.end(), std::greater<std::string>());
+    auto lastToSend = videosList.end();
+    if (subcmd != "all") {
+        const size_t VIDEO_LIMIT = 10;
+        lastToSend = videosList.size() > VIDEO_LIMIT ? videosList.begin() + VIDEO_LIMIT : videosList.end();
+    }
+    std::string msgTxt;
+    std::for_each(videosList.begin(), lastToSend, [&msgTxt](const std::string& entry) { msgTxt += entry; msgTxt += "\n"; } );
+    if (msgTxt.empty()) {
+        msgTxt = u8"There is no video files";
+    }
+    m_slack->sendMessage(m_notifyChannels[channel].name, msgTxt);
+}
+
+void SlackSubscriber::handleDeleteSubCmd(const std::string& subcmd, const std::chrono::system_clock::time_point& currentMsgTs, size_t channel)
+{
+    if (subcmd == "all") {
+        m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
+        m_deleteRequest->all = true;
+        m_deleteRequest->newestTimePoint = currentMsgTs;
+        m_deleteRequest->channelId = m_notifyChannels[channel].id;
+    }
+    else if (StringUtils::starts_with(subcmd, "last")) {
+        uint32_t afterLast = sizeof("last"); // null is like space after :)
+        std::string number = subcmd.length() >= afterLast ? subcmd.substr(afterLast) : std::string();
+        int num = number.empty() ? 1 : std::stoi(number);
+        if (num > 0) {
+            m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
+            m_deleteRequest->count = static_cast<uint32_t>(num);
+            m_deleteRequest->newestTimePoint = currentMsgTs;
+            m_deleteRequest->channelId = m_notifyChannels[channel].id;
+        }
+    }
+    else {
+        TimeUtils::DateTime dt{0};
+        if (TimeUtils::parseDateTime(subcmd, dt)) {
+            m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
+            m_deleteRequest->oldestTimePoint = TimeUtils::createTimePoint(dt.year, dt.month, dt.day, 0, 0, 0);
+            m_deleteRequest->newestTimePoint = TimeUtils::createTimePoint(dt.year, dt.month, dt.day, 23, 59, 59);
+            m_deleteRequest->channelId = m_notifyChannels[channel].id;
+        }
+    }
+
+    if (m_deleteRequest) {
+        std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(0), gatherMessagesJob);
     }
 }
 
@@ -343,111 +393,132 @@ void SlackSubscriber::gatheredMessagesToDelete()
 
     bool isAll = m_deleteRequest->all.has_value() && m_deleteRequest->all.value() ? true : false;
     if (isAll) {
-        auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, 100,
-                                                  std::string("0"), // from 1970
-                                                  TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
-
-        if (result == SlackCommunication::GeneralAnswer::RATE_LIMITED) {
-            std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
-            m_slackThread.addJob(std::chrono::microseconds(1000 * 1000), gatherMessagesJob); // 1s delay - wait for another chance
-            return;
-        }
-
-        if (messages.empty()) {
-            m_deleteRequest.reset();
-        }
-        else {
-            for (size_t i = 0; i < messages.size(); ++i) {
-                // todo add selecting bot messages
-                m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
-            }
-            m_deleteRequest->newestTimePoint = TimeUtils::timeStampToTimePoint(messages.back().timeStamp); // do not take already taken
-
-            std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
-            m_slackThread.addJob(std::chrono::microseconds(0), gatherMessagesJob);
-
-            std::shared_ptr<Job> deleteMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { deleteGathered(); } ));
-            m_slackThread.addJob(std::chrono::microseconds(0), deleteMessagesJob);
-        }
+        gatheredAllMessagesToDelete();
         return;
     }
 
 
     if(m_deleteRequest->count.has_value()) {
-        auto count = m_deleteRequest->count.value();
-
-        if (count == 0){
-            m_deleteRequest.reset();
-            return;
-        }
-
-        auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, count,
-                                                  std::string("0"), // from 1970
-                                                  TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
-
-        if (result == SlackCommunication::GeneralAnswer::RATE_LIMITED) {
-            std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
-            m_slackThread.addJob(std::chrono::microseconds(1000 * 1000), gatherMessagesJob); // 1s delay - wait for another chance
-            return;
-        }
-
-        if (messages.empty()) {
-            m_deleteRequest.reset();
-        }
-        else {
-            for (size_t i = 0; i < messages.size(); ++i) {
-                // todo add selecting bot messages
-                m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
-            }
-            assert(messages.size() <= count);
-            count = count - messages.size();
-            m_deleteRequest->count = count; // take rest if any
-            if (count) {
-                m_deleteRequest->newestTimePoint = TimeUtils::timeStampToTimePoint(messages.back().timeStamp); // do not take already taken
-
-                std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
-                m_slackThread.addJob(std::chrono::microseconds(0), gatherMessagesJob);
-            }
-            else {
-                m_deleteRequest.reset();
-            }
-
-            std::shared_ptr<Job> deleteMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { deleteGathered(); } ));
-            m_slackThread.addJob(std::chrono::microseconds(0), deleteMessagesJob);
-        }
+        gatheredCountedMessagesToDelete();
         return;
     }
 
     if (m_deleteRequest->oldestTimePoint.has_value()) {
-        auto oldestTimePoint = m_deleteRequest->oldestTimePoint.value();
+        gatheredRangedMessagesToDelete();
+        return;
+    }
+}
 
-        auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, 100,
-                                                  TimeUtils::timePointToTimeStamp(oldestTimePoint),
-                                                  TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
+void SlackSubscriber::gatheredAllMessagesToDelete()
+{
+    std::vector<SlackCommunication::Message> messages;
 
-        if (result == SlackCommunication::GeneralAnswer::RATE_LIMITED) {
-            std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
-            m_slackThread.addJob(std::chrono::microseconds(1000 * 1000), gatherMessagesJob); // 1s delay - wait for another chance
-            return;
+    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, 100,
+                                              std::string("0"), // from 1970
+                                              TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
+
+    if (result == SlackCommunication::GeneralAnswer::RATE_LIMITED) {
+        std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredAllMessagesToDelete(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(1000 * 1000), gatherMessagesJob); // 1s delay - wait for another chance
+        return;
+    }
+
+    if (messages.empty()) {
+        m_deleteRequest.reset();
+    }
+    else {
+        for (size_t i = 0; i < messages.size(); ++i) {
+            // todo add selecting bot messages
+            m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
         }
+        m_deleteRequest->newestTimePoint = TimeUtils::timeStampToTimePoint(messages.back().timeStamp); // do not take already taken
 
-        if (messages.empty()) {
-            m_deleteRequest.reset();
+        std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredAllMessagesToDelete(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(0), gatherMessagesJob);
+
+        std::shared_ptr<Job> deleteMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { deleteGathered(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(0), deleteMessagesJob);
+    }
+}
+
+void SlackSubscriber::gatheredCountedMessagesToDelete()
+{
+    std::vector<SlackCommunication::Message> messages;
+
+    auto count = m_deleteRequest->count.value();
+
+    if (count == 0){
+        m_deleteRequest.reset();
+        return;
+    }
+
+    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, count,
+                                              std::string("0"), // from 1970
+                                              TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
+
+    if (result == SlackCommunication::GeneralAnswer::RATE_LIMITED) {
+        std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredCountedMessagesToDelete(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(1000 * 1000), gatherMessagesJob); // 1s delay - wait for another chance
+        return;
+    }
+
+    if (messages.empty()) {
+        m_deleteRequest.reset();
+    }
+    else {
+        for (size_t i = 0; i < messages.size(); ++i) {
+            // todo add selecting bot messages
+            m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
         }
-        else {
-            for (size_t i = 0; i < messages.size(); ++i) {
-                // todo add selecting bot messages
-                m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
-            }
+        assert(messages.size() <= count);
+        count = count - messages.size();
+        m_deleteRequest->count = count; // take rest if any
+        if (count) {
             m_deleteRequest->newestTimePoint = TimeUtils::timeStampToTimePoint(messages.back().timeStamp); // do not take already taken
 
-            std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredMessagesToDelete(); } ));
+            std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredCountedMessagesToDelete(); } ));
             m_slackThread.addJob(std::chrono::microseconds(0), gatherMessagesJob);
-
-            std::shared_ptr<Job> deleteMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { deleteGathered(); } ));
-            m_slackThread.addJob(std::chrono::microseconds(0), deleteMessagesJob);
         }
+        else {
+            m_deleteRequest.reset();
+        }
+
+        std::shared_ptr<Job> deleteMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { deleteGathered(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(0), deleteMessagesJob);
+    }
+}
+
+void SlackSubscriber::gatheredRangedMessagesToDelete()
+{
+    std::vector<SlackCommunication::Message> messages;
+
+    auto oldestTimePoint = m_deleteRequest->oldestTimePoint.value();
+
+    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, 100,
+                                              TimeUtils::timePointToTimeStamp(oldestTimePoint),
+                                              TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
+
+    if (result == SlackCommunication::GeneralAnswer::RATE_LIMITED) {
+        std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredRangedMessagesToDelete(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(1000 * 1000), gatherMessagesJob); // 1s delay - wait for another chance
         return;
+    }
+
+    if (messages.empty()) {
+        m_deleteRequest.reset();
+    }
+    else {
+        for (size_t i = 0; i < messages.size(); ++i) {
+            // todo add selecting bot messages
+            m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
+        }
+        m_deleteRequest->newestTimePoint = TimeUtils::timeStampToTimePoint(messages.back().timeStamp); // do not take already taken
+
+        std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredRangedMessagesToDelete(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(0), gatherMessagesJob);
+
+        std::shared_ptr<Job> deleteMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { deleteGathered(); } ));
+        m_slackThread.addJob(std::chrono::microseconds(0), deleteMessagesJob);
     }
 }
 

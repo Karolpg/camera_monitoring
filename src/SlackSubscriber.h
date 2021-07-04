@@ -98,8 +98,14 @@ private:
 
     std::unique_ptr<DeleteMessagesRequest> m_deleteRequest;
     std::list<MessageInfo> m_messagesToDelete;
+    void handleDeleteSubCmd(const std::string& subcmd, const std::chrono::system_clock::time_point& currentMsgTs, size_t channel);
     void gatheredMessagesToDelete();
+    void gatheredAllMessagesToDelete();
+    void gatheredCountedMessagesToDelete();
+    void gatheredRangedMessagesToDelete();
     void deleteGathered();
+
+    void handleListVideo(const std::string& subcmd, size_t channel);
 
     void initSlack();
 private:
