@@ -17,6 +17,7 @@
 #include "DirUtils.h"
 
 #include <sys/stat.h>
+#include <sys/dir.h>
 #include <errno.h>
 #include <iostream>
 #include <fstream>
@@ -110,6 +111,29 @@ size_t file_size(const std::string& filePath)
     auto result = file.tellg();
     file.close();
     return result < 0 ? 0 : size_t(result);
+}
+
+std::vector<std::string> listDir(const std::string &path)
+{
+    if (!isDir(path)) {
+        return std::vector<std::string>();
+    }
+    std::vector<std::string> result;
+
+    DIR *dir = opendir(path.c_str());
+    if (dir != nullptr) {
+        struct dirent *ent = readdir(dir);
+        while (ent != nullptr) {
+            result.push_back(ent->d_name);
+            ent = readdir(dir);
+        }
+        closedir (dir);
+    }
+    else {
+        std::cerr << "Can NOT open directory: " << path << "\n";
+    }
+
+    return result;
 }
 
 } // namespace DirUtils

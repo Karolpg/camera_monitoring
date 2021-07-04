@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace DirUtils {
 
@@ -25,9 +26,10 @@ std::string cleanPath(const std::string& path);
 bool isDir(const std::string& path);
 bool makePath(const std::string& path, uint32_t mode = 0755);
 
-// function name braking because of hope to be copatible with STD soon (and replace with):
+// function name braking because of hope to be compatible with STD soon (and replace with):
 // https://en.cppreference.com/w/cpp/filesystem/file_size
 // #include <filesystem> GCC 8.0 needed
 size_t file_size(const std::string& filePath);
 
+std::vector<std::string> listDir(const std::string& path);
 } // namespace DirUtils
