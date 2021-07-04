@@ -30,6 +30,9 @@ message(STATUS "clBLAS_FOUND = ${clBLAS_FOUND}")
 set_target_properties(darknet_ocl::darknet_ocl PROPERTIES
   IMPORTED_LINK_INTERFACE_LIBRARIES OpenCL::OpenCL 
   IMPORTED_LINK_INTERFACE_LIBRARIES clBLAS
-  INTERFACE_COMPILE_DEFINITIONS GPU=1
-  INTERFACE_COMPILE_DEFINITIONS OCL=1
+#  INTERFACE_COMPILE_DEFINITIONS GPU=1
+#  INTERFACE_COMPILE_DEFINITIONS OCL=1
 )
+
+target_compile_definitions(darknet_ocl::darknet_ocl INTERFACE GPU=1
+                                                    INTERFACE OCL=1)

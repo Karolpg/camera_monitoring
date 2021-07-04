@@ -84,8 +84,9 @@ elseif("${darknetType}" STREQUAL "opencl")
 else()
     find_package(darknet REQUIRED PATHS ${CMAKE_CURRENT_LIST_DIR}/3rdParties)
     set(darknetProj darknet::darknet)
-
 endif()
+
+message(STATUS "Taken darknetProj: ${darknetProj}")
 
 ##################################### OpenMP
 find_package(OpenMP)

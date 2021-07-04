@@ -37,10 +37,13 @@ Detector::Detector(const Config& cfg)
     const std::string& expectedLabelsFilePath = cfg.getValue("validLabelsFilePath");
 
 #if defined(GPU) && GPU > 0
+    std::cout << "Detector is running with GPU\n";
     gpu_index = cfg.getValue("detector_gpu_idx", 0);
     #if defined(OCL) && OCL > 0
         cl_set_device(gpu_index);
     #endif // defined(OCL) && OCL > 0
+#else
+    std::cout << "Detector is NOT running with GPU\n";
 #endif // defined(GPU) && GPU > 0
 
     // I have no idea why someone assumed to provide file path as non const pointer!?
