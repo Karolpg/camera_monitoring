@@ -63,6 +63,16 @@ bool isDir(const std::string& path)
     return (info.st_mode & S_IFDIR) != 0;
 }
 
+bool isFile(const std::string& filepath)
+{
+    struct stat info;
+    if (stat(filepath.c_str(), &info) != 0)
+    {
+        return false;
+    }
+    return (info.st_mode & S_IFREG) != 0; // REG == regular file
+}
+
 bool makePath(const std::string &path, uint32_t mode)
 {
     if (path.empty()) {

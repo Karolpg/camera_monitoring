@@ -105,7 +105,8 @@ private:
     void gatheredRangedMessagesToDelete();
     void deleteGathered();
 
-    void handleListVideo(const std::string& subcmd, size_t channel);
+    void handleListVideos(const std::string& subcmd, size_t channel);
+    void handleGiveVideo(const std::string& subcmd, size_t channel);
 
     void initSlack();
 private:

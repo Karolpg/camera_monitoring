@@ -24,6 +24,7 @@ namespace DirUtils {
 std::string cleanPath(const std::string& path);
 
 bool isDir(const std::string& path);
+bool isFile(const std::string& filepath);
 bool makePath(const std::string& path, uint32_t mode = 0755);
 
 // function name braking because of hope to be compatible with STD soon (and replace with):

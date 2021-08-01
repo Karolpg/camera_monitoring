@@ -248,7 +248,7 @@ void SlackSubscriber::sendVideo()
     videoSize /= (1024.0 * 1024.0);
 
     std::string text = std::string(u8"Video: ") + *videoFilePath + u8" is ready to send. Size: " + std::to_string(videoSize)
-            + u8" [MB]. If you want to download respond with: ... - this is not ready!!!.";
+            + u8" [MB]. If you want to download respond with: #giveVideo last";
 
     for (size_t c = 0; c < m_notifyChannels.size(); ++c) {
         m_slack->sendMessage(m_notifyChannels[c].name, text);
@@ -311,18 +311,20 @@ void SlackSubscriber::checkIncomingMessage()
             }
         }
         else if (StringUtils::starts_with(text, TEXT_AND_SIZE("#listVideo"))) {
-            uint32_t afterListVideo = sizeof("#listVideo"); // null is like space after :)
-            std::string cmd = text.length() >= afterListVideo ? text.substr(afterListVideo) : std::string();
-            handleListVideo(cmd, c);
+            uint32_t afterListVideos = sizeof("#listVideo"); // null is like space after :)
+            std::string cmd = text.length() >= afterListVideos ? text.substr(afterListVideos) : std::string();
+            handleListVideos(cmd, c);
         }
         else if (StringUtils::starts_with(text, TEXT_AND_SIZE("#giveVideo"))) {
-            //TODO finish this functionality
+            uint32_t afterGiveVideo = sizeof("#giveVideo"); // null is like space after :)
+            std::string cmd = text.length() >= afterGiveVideo ? text.substr(afterGiveVideo) : std::string();
+            handleGiveVideo(cmd, c);
         }
         #undef TEXT_AND_SIZE
     }
 }
 
-void SlackSubscriber::handleListVideo(const std::string& subcmd, size_t channel)
+void SlackSubscriber::handleListVideos(const std::string& subcmd, size_t channel)
 {
     std::string videoDirectory = DirUtils::cleanPath(m_cfg.getValue("videoStorePath", "/tmp"));
     std::vector<std::string> videosList;
@@ -347,6 +349,74 @@ void SlackSubscriber::handleListVideo(const std::string& subcmd, size_t channel)
         msgTxt = u8"There is no video files";
     }
     m_slack->sendMessage(m_notifyChannels[channel].name, msgTxt);
+}
+
+void SlackSubscriber::handleGiveVideo(const std::string& subcmd, size_t channel)
+{
+    std::string filename;
+    int32_t idx = -1;
+    #define TEXT_AND_SIZE(txt) txt, sizeof(txt)-1
+    if (StringUtils::starts_with(subcmd, TEXT_AND_SIZE("last"))) {
+        idx = 0;
+    }
+    else if (StringUtils::starts_with(subcmd, TEXT_AND_SIZE("nr"))) {
+        uint32_t afterNr = sizeof("nr"); // null is like space after :)
+        std::string number = subcmd.length() >= afterNr ? subcmd.substr(afterNr) : std::string();
+        int32_t num = -1;
+        try {
+            num = number.empty() ? 1 : std::stoi(number);
+        }
+        catch(const std::exception& e) {
+            std::string info = std::string("Invalid command. Can't convert str to number: ") + e.what() + "\n";
+            std::cerr << info;
+            m_slack->sendMessage(m_notifyChannels[channel].name, info);
+            return;
+        }
+        if (num < 0) {
+            std::string info =  "Invalid command. Negative number: " + number + "\n";
+            std::cerr << info;
+            m_slack->sendMessage(m_notifyChannels[channel].name, info);
+            return;
+        }
+        idx = num;
+    }
+
+    std::string videoDirectory = DirUtils::cleanPath(m_cfg.getValue("videoStorePath", "/tmp"));
+    if (idx >=0)
+    {
+        // list dir and take by index - zero means latest/newest
+        std::vector<std::string> videosList;
+        {
+            auto dirContent = DirUtils::listDir(videoDirectory);
+            const std::string extension = ".mpeg";
+            for (const auto& entry : dirContent) {
+                if (StringUtils::ends_with(entry, extension)) {
+                    videosList.push_back(entry);
+                }
+            }
+        }
+        std::sort(videosList.begin(), videosList.end(), std::greater<std::string>());
+        if (videosList.size() <= static_cast<size_t>(idx)) {
+            std::string info = "Wrong video index. There is not enought videos. Video count: " + std::to_string(videosList.size())
+                             + " and you have ordered: " + std::to_string(idx) + "\n";
+            std::cerr << info;
+            m_slack->sendMessage(m_notifyChannels[channel].name, info);
+            return;
+        }
+        filename = videoDirectory + "/" + videosList[static_cast<size_t>(idx)];
+    }
+    else {
+        filename = videoDirectory + "/" + subcmd;
+        if (!DirUtils::isFile(filename)) {
+            std::string info = "File you have ordered does not exists: " + subcmd + "\n";
+            std::cerr << info;
+            m_slack->sendMessage(m_notifyChannels[channel].name, info);
+            return;
+        }
+    }
+    m_slack->sendFile(SlackCommunication::Channels(1, m_notifyChannels[channel]), filename);
+
+    #undef TEXT_AND_SIZE
 }
 
 void SlackSubscriber::handleDeleteSubCmd(const std::string& subcmd, const std::chrono::system_clock::time_point& currentMsgTs, size_t channel)
