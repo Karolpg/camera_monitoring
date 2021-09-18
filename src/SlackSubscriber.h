@@ -59,7 +59,7 @@ private:
         std::optional<uint32_t> count;   // #2 - try to remove form newstTimePoint - to count
         std::optional<std::chrono::system_clock::time_point> oldestTimePoint; // #3 - try to remove form newstTimePoint - oldestTimePoint
         std::chrono::system_clock::time_point newestTimePoint;
-        std::string channelId;
+        SlackCommunication::Channel channel;
     };
 
 private:

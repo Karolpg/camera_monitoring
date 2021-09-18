@@ -15,6 +15,7 @@
 //
 
 #include "SlackCommunication.h"
+#include "TimeUtils.h"
 #include <iostream>
 #include <assert.h>
 #include <sstream>
@@ -91,9 +92,10 @@ void printJson(T& obj)
 
 } // namespace
 
-SlackCommunication::SlackCommunication(const std::string &address, const std::string &bearerId)
-    : m_address(address)
-    , m_bearerId(bearerId)
+SlackCommunication::SlackCommunication(const Config &cfg)
+    : m_cfg(cfg)
+    , m_address(cfg.getValue("slackAddress"))
+    , m_bearerId(cfg.getValue("slackBearerId"))
     , m_http()
 {
     if (m_address.empty()) {
@@ -388,10 +390,20 @@ bool SlackCommunication::sendWelcomMessage(const std::string& channelName)
 {
     static const char* welcomeMsg = u8"Awesome! We have just started Camera Monitoring application.\n";
 
-    if (joinChannel(channelName) != SlackCommunication::JoinChannelAnswer::FAIL) {
+    Channel channel;
+    channel.name = channelName;
+    if (joinChannel(channelName, &channel.id) != SlackCommunication::JoinChannelAnswer::FAIL) {
         if (sendMessage(channelName, welcomeMsg) == SlackCommunication::SendAnswer::FAIL) {
             std::cerr << "Can't send welcome message\n";
             return false;
+        }
+        std::string botId;
+        if (getUserBotId(botId) != GeneralAnswer::SUCCESS) {
+            std::cerr << "Can't get bot id!\n";
+        }
+        else {
+            std::cout << "Bot Id is: " << botId << "\n";
+            std::cout.flush();
         }
         return true;
     }
@@ -664,6 +676,7 @@ SlackCommunication::GeneralAnswer SlackCommunication::listChannelMessage(std::ve
         //std::cout << "Raw message: " << i << "\n";
         //printJson(rawMessage);
         //std::cout << "\n";
+        //std::cout.flush();
 
         auto typeIt = rawMessage.FindMember("type");
         if (typeIt == rawMessage.MemberEnd()){
@@ -707,5 +720,59 @@ SlackCommunication::GeneralAnswer SlackCommunication::lastChannelMessage(const s
     if (!messages.empty()) {
         message = messages.front();
     }
+    return result;
+}
+
+SlackCommunication::GeneralAnswer SlackCommunication::getUserBotId(std::string& id)
+{
+    if (!m_botId.empty()) {
+        id = m_botId;
+        return GeneralAnswer::SUCCESS;
+    }
+
+    // There is no easy way to get bot id - 'like who I am'
+    // https://api.slack.com/methods/bots.info returns me nothing when I provide only token :(
+    // I haven't checked https://api.slack.com/methods/users.list
+    // So for me the easiest way is to send some message and then list it back with additional info
+
+    Channel channel;
+    channel.name = m_cfg.getValue("slackReportChannel", "general");
+    if (auto result = joinChannel(channel.name, &channel.id); result == JoinChannelAnswer::FAIL) {
+        std::cerr << "Can't join channel.\n";
+        return GeneralAnswer::FAIL;
+    }
+
+    std::string uniqueText = TimeUtils::currentTimeStamp() + "_find_bot";
+    if (auto result = sendMessage(channel.name, uniqueText); result != SendAnswer::SUCCESS) {
+        std::cerr << "Can't send message. Result: " << static_cast<int>(result) << "\n";
+        return GeneralAnswer::FAIL;
+    }
+    std::vector<Message> messages;
+    auto oldestTs = TimeUtils::timePointToTimeStamp(std::chrono::system_clock::now() - std::chrono::seconds(3));
+    if (auto result = listChannelMessage(messages, channel.id, 10, oldestTs); result != GeneralAnswer::SUCCESS) {
+        std::cerr << "Can't get messages. Result: " << static_cast<int>(result) << "\n";
+        return GeneralAnswer::FAIL;
+    }
+    for (const auto& message : messages) {
+        if (message.text.has_value() && message.text.value() == uniqueText) {
+            deleteMessageChannel(channel.id, message.timeStamp);
+            m_botId = message.user.has_value() ? message.user.value() : "";
+            id = m_botId;
+            return GeneralAnswer::SUCCESS;
+        }
+    }
+    std::cerr << "Message just sent and can't be found in lates messages - it shouldn't be that in this case.";
+    return GeneralAnswer::FAIL;
+}
+
+std::string SlackCommunication::msgToStr(const Message& msg)
+{
+    std::string result;
+    result += "Message type: " + msg.type + "\n";
+    result += "Message time: " + msg.timeStamp + "\n";
+    result += "Message text: " + (msg.text.has_value() ? msg.text.value() : "there is no text info") + "\n";
+    result += "Message user: " + (msg.user.has_value() ? msg.user.value() : "there is no user info") + "\n";
+    result += "Message bot : " + (msg.botId.has_value() ? msg.botId.value() : "there is no bot info") + "\n";
+    result += "Message team: " + (msg.team.has_value() ? msg.team.value() : "there is no team info") + "\n";
     return result;
 }

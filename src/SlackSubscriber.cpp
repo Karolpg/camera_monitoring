@@ -55,7 +55,7 @@ SlackSubscriber::~SlackSubscriber()
 
 void SlackSubscriber::initSlack()
 {
-    m_slack = std::make_unique<SlackCommunication>(m_cfg.getValue("slackAddress"), m_cfg.getValue("slackBearerId"));
+    m_slack = std::make_unique<SlackCommunication>(m_cfg);
     {
         std::string channelName = m_cfg.getValue("slackReportChannel", "general");
         SlackCommunication::Channels channels;
@@ -425,7 +425,7 @@ void SlackSubscriber::handleDeleteSubCmd(const std::string& subcmd, const std::c
         m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
         m_deleteRequest->all = true;
         m_deleteRequest->newestTimePoint = currentMsgTs;
-        m_deleteRequest->channelId = m_notifyChannels[channel].id;
+        m_deleteRequest->channel = m_notifyChannels[channel];
     }
     else if (StringUtils::starts_with(subcmd, "last")) {
         uint32_t afterLast = sizeof("last"); // null is like space after :)
@@ -435,7 +435,7 @@ void SlackSubscriber::handleDeleteSubCmd(const std::string& subcmd, const std::c
             m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
             m_deleteRequest->count = static_cast<uint32_t>(num);
             m_deleteRequest->newestTimePoint = currentMsgTs;
-            m_deleteRequest->channelId = m_notifyChannels[channel].id;
+            m_deleteRequest->channel = m_notifyChannels[channel];
         }
     }
     else {
@@ -444,7 +444,7 @@ void SlackSubscriber::handleDeleteSubCmd(const std::string& subcmd, const std::c
             m_deleteRequest = std::make_unique<DeleteMessagesRequest>();
             m_deleteRequest->oldestTimePoint = TimeUtils::createTimePoint(dt.year, dt.month, dt.day, 0, 0, 0);
             m_deleteRequest->newestTimePoint = TimeUtils::createTimePoint(dt.year, dt.month, dt.day, 23, 59, 59);
-            m_deleteRequest->channelId = m_notifyChannels[channel].id;
+            m_deleteRequest->channel = m_notifyChannels[channel];
         }
     }
 
@@ -483,7 +483,7 @@ void SlackSubscriber::gatheredAllMessagesToDelete()
 {
     std::vector<SlackCommunication::Message> messages;
 
-    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, 100,
+    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channel.id, 100,
                                               std::string("0"), // from 1970
                                               TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
 
@@ -497,10 +497,15 @@ void SlackSubscriber::gatheredAllMessagesToDelete()
         m_deleteRequest.reset();
     }
     else {
+        std::string userId;
+        m_slack->getUserBotId(userId);
         for (size_t i = 0; i < messages.size(); ++i) {
-            // todo add selecting bot messages
-            m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
+            if (!userId.empty() && messages[i].user.has_value() && messages[i].user.value() != userId) {
+                 continue; // try to skip not bot messages
+            }
+            m_messagesToDelete.push_back({m_deleteRequest->channel.id, messages[i].timeStamp});
         }
+
         m_deleteRequest->newestTimePoint = TimeUtils::timeStampToTimePoint(messages.back().timeStamp); // do not take already taken
 
         std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredAllMessagesToDelete(); } ));
@@ -522,7 +527,7 @@ void SlackSubscriber::gatheredCountedMessagesToDelete()
         return;
     }
 
-    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, count,
+    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channel.id, count,
                                               std::string("0"), // from 1970
                                               TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
 
@@ -536,10 +541,15 @@ void SlackSubscriber::gatheredCountedMessagesToDelete()
         m_deleteRequest.reset();
     }
     else {
+        std::string userId;
+        m_slack->getUserBotId(userId);
         for (size_t i = 0; i < messages.size(); ++i) {
-            // todo add selecting bot messages
-            m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
+            if (!userId.empty() && messages[i].user.has_value() && messages[i].user.value() != userId) {
+                 continue; // try to skip not bot messages
+            }
+            m_messagesToDelete.push_back({m_deleteRequest->channel.id, messages[i].timeStamp});
         }
+
         assert(messages.size() <= count);
         count = count - messages.size();
         m_deleteRequest->count = count; // take rest if any
@@ -564,7 +574,7 @@ void SlackSubscriber::gatheredRangedMessagesToDelete()
 
     auto oldestTimePoint = m_deleteRequest->oldestTimePoint.value();
 
-    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channelId, 100,
+    auto result = m_slack->listChannelMessage(messages, m_deleteRequest->channel.id, 100,
                                               TimeUtils::timePointToTimeStamp(oldestTimePoint),
                                               TimeUtils::timePointToTimeStamp(m_deleteRequest->newestTimePoint));
 
@@ -578,10 +588,15 @@ void SlackSubscriber::gatheredRangedMessagesToDelete()
         m_deleteRequest.reset();
     }
     else {
+        std::string userId;
+        m_slack->getUserBotId(userId);
         for (size_t i = 0; i < messages.size(); ++i) {
-            // todo add selecting bot messages
-            m_messagesToDelete.push_back({m_deleteRequest->channelId, messages[i].timeStamp});
+            if (!userId.empty() && messages[i].user.has_value() && messages[i].user.value() != userId) {
+                 continue; // try to skip not bot messages
+            }
+            m_messagesToDelete.push_back({m_deleteRequest->channel.id, messages[i].timeStamp});
         }
+
         m_deleteRequest->newestTimePoint = TimeUtils::timeStampToTimePoint(messages.back().timeStamp); // do not take already taken
 
         std::shared_ptr<Job> gatherMessagesJob = std::shared_ptr<Job>(new SimpleJob( [this]() { gatheredRangedMessagesToDelete(); } ));

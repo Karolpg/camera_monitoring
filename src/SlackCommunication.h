@@ -22,11 +22,12 @@
 #include <optional>
 #include "HttpCommunication.h"
 #include "SlackFileTypes.h"
+#include "Config.h"
 
 class SlackCommunication
 {
 public:
-    SlackCommunication(const std::string& address, const std::string& bearerId);
+    SlackCommunication(const Config &cfg);
     ~SlackCommunication();
 
     enum class GeneralAnswer
@@ -70,6 +71,7 @@ public:
         std::optional<std::string> team;
     };
 
+    static std::string msgToStr(const Message& msg);
 
     SendAnswer sendMessage(const std::string& channelName, const std::string& text);
     bool sendWelcomMessage(const std::string& channelName);
@@ -92,10 +94,13 @@ public:
 
 
     GeneralAnswer lastChannelMessage(const std::string& channelId, Message& message);
+    GeneralAnswer getUserBotId(std::string& id);
 
 private:
+    const Config &m_cfg;
     std::string m_address;
     std::string m_bearerId;
+    std::string m_botId;
     HttpCommunication m_http;
 
     HttpCommunication::HeaderList m_jsonHeaders;
